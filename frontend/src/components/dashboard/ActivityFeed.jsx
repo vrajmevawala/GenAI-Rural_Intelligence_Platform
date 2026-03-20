@@ -4,6 +4,7 @@ import { useActivityFeed } from '@/hooks/useDashboard'
 import { formatRelative } from '@/utils/formatters'
 import Skeleton from '@/components/ui/Skeleton'
 import { cn } from '@/utils/cn'
+import TranslatedText from '@/components/common/TranslatedText'
 
 const typeIcons = {
   alert_sent: Bell,
@@ -71,7 +72,7 @@ export default function ActivityFeed() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-700 leading-relaxed">
-                {activity.message}
+                <TranslatedText>{activity.message}</TranslatedText>
               </p>
               <p className="text-[10px] text-gray-400 mt-0.5">
                 {activity.created_at ? formatRelative(activity.created_at) : 'Recently'}

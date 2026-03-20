@@ -74,11 +74,9 @@ export const getScoreLabelColor = (label) => {
 }
 
 export const scoreComponents = [
-  { key: 'rainfall_deviation', label: 'Rainfall deviation', icon: 'CloudRain', weight: 20 },
-  { key: 'days_to_loan_due', label: 'Loan due proximity', icon: 'Calendar', weight: 15 },
-  { key: 'crop_failure_probability', label: 'Crop failure risk', icon: 'AlertTriangle', weight: 20 },
-  { key: 'market_price_drop', label: 'Market price drop', icon: 'TrendingDown', weight: 15 },
-  { key: 'insurance_gap', label: 'Insurance gap', icon: 'Shield', weight: 10 },
-  { key: 'income_to_debt_ratio', label: 'Income-to-debt', icon: 'Wallet', weight: 10 },
-  { key: 'historical_default', label: 'Historical default', icon: 'History', weight: 10 },
+  { key: 'water', label: 'Water Stress', icon: 'Droplets', weight: 25 },
+  { key: 'weather', label: 'Heat Stress', icon: 'CloudSun', weight: 15 },
+  { key: 'soil', label: 'Soil Risk', icon: 'Sprout', weight: 25 },
+  { key: 'market', label: 'Market Volatility', icon: 'TrendingDown', weight: 20 },
+  { key: 'pest', label: 'Pest Pressure', icon: 'Bug', weight: 15 },
 ]

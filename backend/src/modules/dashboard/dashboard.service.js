@@ -20,12 +20,26 @@ async function getSummary(institutionId) {
     FROM alerts
     GROUP BY reason
   `);
+  
+  // Average FVI Score (Latest per farmer)
+  const avgScoreRes = await pool.query(`
+    SELECT AVG(score)::int as avg_score FROM (
+      SELECT DISTINCT ON (farmer_id) score 
+      FROM fvi_records 
+      ORDER BY farmer_id, created_at DESC
+    ) as latest_scores
+  `);
+
+  // Districts Count
+  const districtsRes = await pool.query("SELECT COUNT(DISTINCT district)::int as count FROM farmers");
 
   return {
     total_farmers: farmersRes.rows[0].count,
     alerts_sent: alertsRes.rows[0].count,
     critical_count: criticalRes.rows[0].count,
     schemes_matched: schemesRes.rows[0].count,
+    avg_score: avgScoreRes.rows[0]?.avg_score || 0,
+    districts_count: districtsRes.rows[0].count,
     distribution: distributionRes.rows,
     alertBreakdown: breakdownRes.rows
   };

@@ -8,19 +8,20 @@ import {
 import { cn } from '@/utils/cn'
 import useAuthStore from '@/store/authStore'
 import useNotificationStore from '@/store/notificationStore'
+import useLanguage from '@/hooks/useLanguage'
 
 const iconMap = {
   LayoutDashboard, Users, Map, Bell, FileText, UserCog, Settings,
 }
 
 const navItems = [
-  { label: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
-  { label: 'Farmers', icon: 'Users', path: '/farmers' },
-  { label: 'Vulnerability Map', icon: 'Map', path: '/vulnerability' },
-  { label: 'Alerts', icon: 'Bell', path: '/alerts', badge: true },
-  { label: 'Schemes', icon: 'FileText', path: '/schemes' },
-  { label: 'Users', icon: 'UserCog', path: '/users', roles: ['superadmin', 'org_admin'] },
-  { label: 'Settings', icon: 'Settings', path: '/settings' },
+  { label: 'nav.dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
+  { label: 'nav.farmers', icon: 'Users', path: '/farmers' },
+  { label: 'nav.vulnerability_map', icon: 'Map', path: '/vulnerability' },
+  { label: 'nav.alerts', icon: 'Bell', path: '/alerts', badge: true },
+  { label: 'nav.schemes', icon: 'FileText', path: '/schemes' },
+  { label: 'nav.users', icon: 'UserCog', path: '/users', roles: ['superadmin', 'org_admin'] },
+  { label: 'nav.settings', icon: 'Settings', path: '/settings' },
 ]
 
 export default function Sidebar() {
@@ -28,6 +29,7 @@ export default function Sidebar() {
   const location = useLocation()
   const { user, logout } = useAuthStore()
   const { unreadCount } = useNotificationStore()
+  const { t } = useLanguage()
 
   const visibleItems = navItems.filter(
     (item) => !item.roles || item.roles.includes(user?.role)
@@ -98,7 +100,7 @@ export default function Sidebar() {
                     exit={{ opacity: 0, width: 0 }}
                     className="whitespace-nowrap overflow-hidden"
                   >
-                    {item.label}
+                    {t(item.label)}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -134,7 +136,7 @@ export default function Sidebar() {
                 exit={{ opacity: 0 }}
                 className="whitespace-nowrap font-medium"
               >
-                Sign out
+                {t('nav.logout')}
               </motion.span>
             )}
           </AnimatePresence>

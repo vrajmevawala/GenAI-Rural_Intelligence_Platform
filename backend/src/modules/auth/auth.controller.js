@@ -88,10 +88,20 @@ async function me(req, res, next) {
   }
 }
 
+async function updateProfile(req, res, next) {
+  try {
+    const user = await authService.updateProfile(req.user.userId, req.body);
+    res.status(200).json(successResponse(user, "Profile updated"));
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   register,
   login,
   refresh,
   logout,
-  me
+  me,
+  updateProfile
 };

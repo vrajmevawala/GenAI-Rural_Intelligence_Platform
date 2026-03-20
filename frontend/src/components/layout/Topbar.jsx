@@ -1,13 +1,16 @@
-import { Bell, Search, ChevronDown } from 'lucide-react'
+import { Bell, Search, ChevronDown, Languages } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '@/store/authStore'
 import useNotificationStore from '@/store/notificationStore'
+import useLanguage from '@/hooks/useLanguage'
 import Avatar from '@/components/ui/Avatar'
+import { LANGUAGES } from '@/utils/constants'
 import { cn } from '@/utils/cn'
 
 export default function Topbar() {
   const { user } = useAuthStore()
   const { unreadCount } = useNotificationStore()
+  const { language, setLanguage, t } = useLanguage()
   const navigate = useNavigate()
 
   return (
@@ -17,7 +20,7 @@ export default function Topbar() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
           type="text"
-          placeholder="Search farmers, schemes, alerts..."
+          placeholder={t('common.search')}
           className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm
                      bg-gray-50 placeholder:text-gray-400 focus:outline-none
                      focus:ring-2 focus:ring-[#0F4C35]/20 focus:border-[#0F4C35]
@@ -30,6 +33,32 @@ export default function Topbar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Language Selector */}
+        <div className="relative group">
+          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-500 hover:bg-gray-50 transition border border-transparent hover:border-gray-200">
+            <Languages className="w-4 h-4" />
+            <span className="text-sm font-medium">
+              {LANGUAGES.find(l => l.value === language)?.label.split(' ')[0]}
+            </span>
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          
+          <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+            {LANGUAGES.map(lang => (
+              <button
+                key={lang.value}
+                onClick={() => setLanguage(lang.value)}
+                className={cn(
+                  'w-full text-left px-4 py-2 text-sm transition',
+                  language === lang.value ? 'bg-[#0F4C35]/5 text-[#0F4C35] font-semibold' : 'text-gray-600 hover:bg-gray-50'
+                )}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Notification bell */}
         <button
           onClick={() => navigate('/alerts')}

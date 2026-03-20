@@ -6,19 +6,22 @@ import VulnerabilityScoreBadge from './VulnerabilityScoreBadge'
 import Avatar from '@/components/ui/Avatar'
 import { formatDate, formatCurrency } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import useLanguage from '@/hooks/useLanguage'
+import TranslatedText from '@/components/common/TranslatedText'
 
 export default function FarmerTable({ farmers = [], onDelete, onRecalculate, sortConfig, onSort }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(null)
+  const { t } = useLanguage()
 
   const columns = [
-    { key: 'name', label: 'Farmer' },
-    { key: 'district', label: 'District' },
-    { key: 'primary_crop', label: 'Crop' },
-    { key: 'land_area_acres', label: 'Land (acres)' },
-    { key: 'vulnerability_score', label: 'Score' },
-    { key: 'annual_income_inr', label: 'Income' },
-    { key: 'created_at', label: 'Registered' },
+    { key: 'name', label: t('farmers.table.farmer') },
+    { key: 'district', label: t('farmers.table.district') },
+    { key: 'primary_crop', label: t('farmers.table.crop') },
+    { key: 'land_area_acres', label: t('farmers.table.land') },
+    { key: 'vulnerability_score', label: t('farmers.table.score') },
+    { key: 'annual_income_inr', label: t('farmers.table.income') },
+    { key: 'created_at', label: t('farmers.table.registered') },
   ]
 
   const SortIcon = ({ colKey }) => {
@@ -69,14 +72,20 @@ export default function FarmerTable({ farmers = [], onDelete, onRecalculate, sor
                     <Avatar name={farmer.name} size="sm" />
                     <div>
                       <p className="text-sm font-medium text-gray-900 group-hover:text-[#0F4C35] transition-colors">
-                        {farmer.name}
+                        <TranslatedText>{farmer.name}</TranslatedText>
                       </p>
-                      <p className="text-xs text-gray-400">{farmer.village}</p>
+                      <p className="text-xs text-gray-400">
+                        <TranslatedText>{farmer.village}</TranslatedText>
+                      </p>
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-600">{farmer.district}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{farmer.primary_crop || '—'}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">
+                  <TranslatedText>{farmer.district}</TranslatedText>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-600">
+                  <TranslatedText>{farmer.primary_crop}</TranslatedText>
+                </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{farmer.land_area_acres || '—'}</td>
                 <td className="px-4 py-3">
                   <VulnerabilityScoreBadge

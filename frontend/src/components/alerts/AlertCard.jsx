@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion'
-import { Bell, User, Calendar, ChevronRight } from 'lucide-react'
+import { User, Calendar } from 'lucide-react'
 import AlertPriorityBadge from './AlertPriorityBadge'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import { formatRelative } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import TranslatedText from '@/components/common/TranslatedText'
 
 const borderColors = {
   low: 'border-l-emerald-400',
@@ -39,12 +40,12 @@ export default function AlertCard({ alert, onStatusUpdate, index = 0 }) {
           <span className="text-lg">{typeIcons[alert.alert_type] || '📢'}</span>
           <div>
             <p className="text-sm font-semibold text-gray-900 capitalize">
-              {alert.alert_type?.replace(/_/g, ' ') || 'Alert'}
+              <TranslatedText>{alert.alert_type?.replace(/_/g, ' ') || 'Alert'}</TranslatedText>
             </p>
             <div className="flex items-center gap-2 mt-0.5">
               <User className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-500">
-                {alert.farmer_name || 'Unknown farmer'}
+                <TranslatedText>{alert.farmer_name || 'Unknown farmer'}</TranslatedText>
               </span>
             </div>
           </div>
@@ -53,7 +54,7 @@ export default function AlertCard({ alert, onStatusUpdate, index = 0 }) {
       </div>
 
       <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-        {alert.message_content || alert.message || 'No message content'}
+        <TranslatedText>{alert.message_content || alert.message || 'No message content'}</TranslatedText>
       </p>
 
       <div className="flex items-center justify-between">
