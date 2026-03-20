@@ -53,12 +53,17 @@ export function useInitAuth() {
         const res = await authApi.getMe()
         setUser(res.data.data || res.data)
         setLoading(false)
-      } catch {
-        logout()
+      } catch (err) {
+        console.error('Auth initialization failed:', err)
+        if (err.response?.status === 401) {
+          logout()
+        } else {
+          setLoading(false)
+        }
       }
     }
     init()
-  }, [])
+  }, [accessToken, setUser, logout, setLoading])
 }
 
 export default useAuth

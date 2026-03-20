@@ -1,32 +1,19 @@
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const { pool } = require("../../config/db");
-const { ROLE_LEVELS, ROLES } = require("../../config/constants");
 const { AppError } = require("../../middleware/errorHandler");
 const { writeAuditLog } = require("../../utils/logger");
 
-function ensureOrgScope(actor, orgId) {
-  if (actor.role !== ROLES.SUPERADMIN && actor.organizationId !== orgId) {
-    throw new AppError("Organization scope violation", 403, "PERMISSION_DENIED");
-  }
-}
-
-function ensureRoleAssignable(actorRole, targetRole) {
-  if (ROLE_LEVELS[targetRole] > ROLE_LEVELS[actorRole]) {
-    throw new AppError("Cannot assign higher role", 403, "PERMISSION_DENIED");
-  }
-}
-
 async function listUsers(actor) {
   let sql = `
-    SELECT id, organization_id, name, email, role, preferred_language, is_active, last_login_at, created_at
-    FROM users
+    SELECT id, institution_id, name, email, role, created_at
+    FROM institution_users
   `;
   const values = [];
 
-  if (actor.role !== ROLES.SUPERADMIN) {
-    sql += " WHERE organization_id = $1";
-    values.push(actor.organizationId);
+  if (actor.role !== "superadmin") {
+    sql += " WHERE institution_id = $1";
+    values.push(actor.institutionId);
   }
 
   sql += " ORDER BY created_at DESC";
@@ -35,22 +22,20 @@ async function listUsers(actor) {
 }
 
 async function createUser(actor, payload, ipAddress) {
-  ensureOrgScope(actor, payload.organization_id);
-  ensureRoleAssignable(actor.role, payload.role);
-
   const email = payload.email.toLowerCase();
-  const exists = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+  const exists = await pool.query("SELECT id FROM institution_users WHERE email = $1", [email]);
   if (exists.rowCount > 0) {
     throw new AppError("Email already exists", 409, "VALIDATION_ERROR");
   }
 
   const id = uuidv4();
-  const passwordHash = await bcrypt.hash(payload.password, 12);
+  // Storing as plain text as per user request to 'remove encryption'
+  const passwordHash = payload.password; 
   const { rows } = await pool.query(
-    `INSERT INTO users (id, organization_id, name, email, password_hash, role, preferred_language)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, organization_id, name, email, role, preferred_language, is_active, created_at`,
-    [id, payload.organization_id, payload.name, email, passwordHash, payload.role, payload.preferred_language]
+    `INSERT INTO institution_users (id, institution_id, name, email, password, role)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, institution_id, name, email, role, created_at`,
+    [id, payload.institution_id, payload.name, email, passwordHash, payload.role]
   );
 
   await writeAuditLog({
@@ -67,8 +52,8 @@ async function createUser(actor, payload, ipAddress) {
 
 async function getUserById(actor, id) {
   const { rows } = await pool.query(
-    `SELECT id, organization_id, name, email, role, preferred_language, is_active, last_login_at, created_at
-     FROM users WHERE id = $1`,
+    `SELECT id, institution_id, name, email, role, created_at
+     FROM institution_users WHERE id = $1`,
     [id]
   );
 
@@ -76,7 +61,6 @@ async function getUserById(actor, id) {
     throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
 
-  ensureOrgScope(actor, rows[0].organization_id);
   return rows[0];
 }
 
@@ -87,7 +71,7 @@ async function updateUser(actor, id, payload, ipAddress) {
   const values = [];
   let idx = 1;
 
-  ["name", "preferred_language", "is_active"].forEach((key) => {
+  ["name", "role", "institution_id", "password"].forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(payload, key)) {
       fields.push(`${key} = $${idx}`);
       values.push(payload[key]);
@@ -101,10 +85,10 @@ async function updateUser(actor, id, payload, ipAddress) {
 
   values.push(id);
   const sql = `
-    UPDATE users
-    SET ${fields.join(", ")}, updated_at = NOW()
+    UPDATE institution_users
+    SET ${fields.join(", ")}
     WHERE id = $${idx}
-    RETURNING id, organization_id, name, email, role, preferred_language, is_active, last_login_at, created_at, updated_at
+    RETURNING id, institution_id, name, email, role, created_at
   `;
 
   const { rows } = await pool.query(sql, values);
@@ -122,22 +106,20 @@ async function updateUser(actor, id, payload, ipAddress) {
   return rows[0];
 }
 
-async function softDeleteUser(actor, id, ipAddress) {
+async function deleteUser(actor, id, ipAddress) {
   const current = await getUserById(actor, id);
-
-  await pool.query("UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1", [id]);
+  await pool.query("DELETE FROM institution_users WHERE id = $1", [id]);
 
   await writeAuditLog({
     userId: actor.userId,
-    action: "user.soft_delete",
+    action: "user.delete",
     entityType: "user",
     entityId: id,
     oldValues: current,
-    newValues: { is_active: false },
     ipAddress
   });
 
-  return { id, is_active: false };
+  return { id, deleted: true };
 }
 
 module.exports = {
@@ -145,5 +127,5 @@ module.exports = {
   createUser,
   getUserById,
   updateUser,
-  softDeleteUser
+  deleteUser
 };

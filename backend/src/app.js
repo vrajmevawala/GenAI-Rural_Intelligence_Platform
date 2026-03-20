@@ -9,11 +9,15 @@ const { errorHandler, AppError } = require("./middleware/errorHandler");
 
 const authRoutes = require("./modules/auth/auth.routes");
 const usersRoutes = require("./modules/users/users.routes");
+const institutionsRoutes = require("./modules/institutions/institutions.routes");
 const farmersRoutes = require("./modules/farmers/farmers.routes");
+const cropsRoutes = require("./modules/crops/crops.routes");
 const vulnerabilityRoutes = require("./modules/vulnerability/vulnerability.routes");
 const schemesRoutes = require("./modules/schemes/schemes.routes");
 const alertsRoutes = require("./modules/alerts/alerts.routes");
 const dashboardRoutes = require("./modules/dashboard/dashboard.routes");
+const diseaseRoutes = require("./modules/disease/disease.routes");
+const locationsRoutes = require("./modules/locations/locations.routes");
 
 dotenv.config();
 
@@ -47,11 +51,15 @@ app.get("/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/institutions", institutionsRoutes);
 app.use("/api/farmers", farmersRoutes);
+app.use("/api/crops", cropsRoutes);
 app.use("/api/vulnerability", vulnerabilityRoutes);
 app.use("/api/schemes", schemesRoutes);
 app.use("/api/alerts", alertsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/disease", diseaseRoutes);
+app.use("/api/locations", locationsRoutes);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404, "NOT_FOUND"));

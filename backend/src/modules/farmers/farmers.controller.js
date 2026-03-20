@@ -1,77 +1,80 @@
 const { successResponse } = require("../../utils/apiResponse");
-const { getPagination, buildMeta } = require("../../utils/pagination");
 const farmersService = require("./farmers.service");
 
-async function listFarmers(req, res, next) {
+async function list(req, res, next) {
   try {
-    const { page, limit, offset } = getPagination(req.query);
-    const result = await farmersService.listFarmers(req.user, req.query, page, limit, offset);
-    res.json(successResponse(result.rows, "Farmers fetched", buildMeta(result)));
+    const { district, village, soil_type, search, limit, offset } = req.query;
+    const data = await farmersService.listFarmers(
+      { district, village, soil_type, search },
+      Number(limit || 10),
+      Number(offset || 0)
+    );
+    res.status(200).json(successResponse(data, "Farmers retrieved"));
   } catch (err) {
     next(err);
   }
 }
 
-async function createFarmer(req, res, next) {
+async function create(req, res, next) {
   try {
-    const farmer = await farmersService.createFarmer(req.user, req.body, req.ip);
-    res.status(201).json(successResponse(farmer, "Farmer created"));
+    const data = await farmersService.createFarmer(req.body);
+    res.status(201).json(successResponse(data, "Farmer created successfully"));
   } catch (err) {
     next(err);
   }
 }
 
-async function getFarmer(req, res, next) {
+async function get(req, res, next) {
   try {
-    const farmer = await farmersService.getFarmerById(req.user, req.params.id);
-    res.json(successResponse(farmer, "Farmer profile fetched"));
+    const data = await farmersService.getFarmerById(req.params.id);
+    res.status(200).json(successResponse(data, "Farmer retrieved"));
   } catch (err) {
     next(err);
   }
 }
 
-async function updateFarmer(req, res, next) {
+async function update(req, res, next) {
   try {
-    const farmer = await farmersService.updateFarmer(req.user, req.params.id, req.body, req.ip);
-    res.json(successResponse(farmer, "Farmer updated"));
+    const data = await farmersService.updateFarmer(req.params.id, req.body);
+    res.status(200).json(successResponse(data, "Farmer updated successfully"));
   } catch (err) {
     next(err);
   }
 }
 
-async function deleteFarmer(req, res, next) {
+async function remove(req, res, next) {
   try {
-    const result = await farmersService.deleteFarmer(req.user, req.params.id, req.ip);
-    res.json(successResponse(result, "Farmer deleted"));
+    const data = await farmersService.deleteFarmer(req.params.id);
+    res.status(200).json(successResponse(data, "Farmer deleted successfully"));
   } catch (err) {
     next(err);
   }
 }
 
-async function scoreHistory(req, res, next) {
+async function recalculate(req, res, next) {
   try {
-    const history = await farmersService.getScoreHistory(req.user, req.params.id);
-    res.json(successResponse(history, "Score history fetched"));
+    const data = await farmersService.recalculateScore(req.params.id);
+    res.status(200).json(successResponse(data, "Score recalculated"));
   } catch (err) {
     next(err);
   }
 }
 
-async function recalculateScore(req, res, next) {
+async function history(req, res, next) {
   try {
-    const result = await farmersService.manualRecalculate(req.user, req.params.id, req.ip);
-    res.json(successResponse(result, "Score recalculated"));
+    const data = await farmersService.getScoreHistory(req.params.id);
+    res.status(200).json(successResponse(data, "Score history retrieved"));
   } catch (err) {
     next(err);
   }
 }
 
 module.exports = {
-  listFarmers,
-  createFarmer,
-  getFarmer,
-  updateFarmer,
-  deleteFarmer,
-  scoreHistory,
-  recalculateScore
+  list,
+  create,
+  get,
+  update,
+  remove,
+  recalculate,
+  history
 };
