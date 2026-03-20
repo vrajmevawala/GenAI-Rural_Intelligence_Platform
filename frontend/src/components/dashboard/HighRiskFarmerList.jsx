@@ -5,6 +5,7 @@ import { useHighRisk } from '@/hooks/useVulnerability'
 import VulnerabilityScoreBadge from '@/components/farmers/VulnerabilityScoreBadge'
 import Avatar from '@/components/ui/Avatar'
 import Skeleton from '@/components/ui/Skeleton'
+import TranslatedText from '@/components/common/TranslatedText'
 
 export default function HighRiskFarmerList() {
   const { data, isLoading } = useHighRisk({ limit: 8 })
@@ -55,10 +56,10 @@ export default function HighRiskFarmerList() {
           <Avatar name={farmer.name} size="sm" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-gray-900 truncate group-hover:text-[#0F4C35]">
-              {farmer.name}
+              <TranslatedText>{farmer.name}</TranslatedText>
             </p>
             <p className="text-[10px] text-gray-400 truncate">
-              {farmer.village}, {farmer.district}
+              <TranslatedText>{farmer.village}</TranslatedText>, <TranslatedText>{farmer.district}</TranslatedText>
             </p>
           </div>
           <VulnerabilityScoreBadge

@@ -18,6 +18,7 @@ const alertsRoutes = require("./modules/alerts/alerts.routes");
 const dashboardRoutes = require("./modules/dashboard/dashboard.routes");
 const diseaseRoutes = require("./modules/disease/disease.routes");
 const locationsRoutes = require("./modules/locations/locations.routes");
+const translationRoutes = require("./modules/translation/translation.routes");
 
 dotenv.config();
 
@@ -60,6 +61,7 @@ app.use("/api/alerts", alertsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/disease", diseaseRoutes);
 app.use("/api/locations", locationsRoutes);
+app.use("/api/translate", translationRoutes);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404, "NOT_FOUND"));

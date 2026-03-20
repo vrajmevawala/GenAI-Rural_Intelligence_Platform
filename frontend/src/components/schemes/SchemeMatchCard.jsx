@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion'
-import { FileText, CheckCircle2, Clock, XCircle, ChevronRight } from 'lucide-react'
+import { FileText, CheckCircle2, Clock, XCircle } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import { cn } from '@/utils/cn'
+import TranslatedText from '@/components/common/TranslatedText'
 
 const statusConfig = {
   eligible: { variant: 'info', icon: Clock, label: 'Eligible' },
@@ -15,7 +16,6 @@ const statusConfig = {
 export default function SchemeMatchCard({ match, onUpdateStatus, index = 0 }) {
   const scheme = match.scheme || match
   const status = statusConfig[match.application_status || 'eligible']
-  const StatusIcon = status.icon
 
   return (
     <motion.div
@@ -32,10 +32,10 @@ export default function SchemeMatchCard({ match, onUpdateStatus, index = 0 }) {
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">
-              {scheme.scheme_name || scheme.name || 'Government Scheme'}
+              <TranslatedText>{scheme.scheme_name || scheme.name || 'Government Scheme'}</TranslatedText>
             </p>
             <p className="text-xs text-gray-500 mt-0.5">
-              {scheme.ministry || 'Ministry of Agriculture'}
+              <TranslatedText>{scheme.ministry || 'Ministry of Agriculture'}</TranslatedText>
             </p>
           </div>
         </div>
@@ -46,7 +46,7 @@ export default function SchemeMatchCard({ match, onUpdateStatus, index = 0 }) {
 
       {scheme.description && (
         <p className="text-xs text-gray-600 mb-3 line-clamp-2">
-          {scheme.description}
+          <TranslatedText>{scheme.description}</TranslatedText>
         </p>
       )}
 

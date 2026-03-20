@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "data": {
+    "id": "96f3e789-5d52-4d2b-899c-a0fca7d2ce43",
+    "farmer_id": "d6509c2c-7bc9-4e82-8e9e-adcc934221c6",
+    "crop_id": null,
+    "score": 47,
+    "risk_level": "medium",
+    "crop_risk": null,
+    "soil_crop_risk": null,
+    "weather_risk": null,
+    "disease_risk": null,
+    "created_at": "2026-03-20T13:19:59.615Z",
+    "breakdown": {
+      "pest": 15,
+      "soil": 80,
+      "water": 14,
+      "market": 30,
+      "weather": 0
+    },
+    "label": "medium"
+  }
+}

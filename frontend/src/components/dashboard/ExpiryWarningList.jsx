@@ -5,9 +5,12 @@ import Badge from '@/components/ui/Badge'
 import Skeleton from '@/components/ui/Skeleton'
 import { formatDaysRemaining } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import useLanguage from '@/hooks/useLanguage'
+import TranslatedText from '@/components/common/TranslatedText'
 
 export default function ExpiryWarningList({ data = [], isLoading = false }) {
   const navigate = useNavigate()
+  const { t } = useLanguage()
 
   const displayItems = data.length > 0 ? data : [
     { id: 1, farmer_name: 'Ramesh Patel', farmer_id: 1, type: 'insurance', expiry_date: new Date(Date.now() + 5 * 86400000).toISOString(), district: 'Banaskantha' },
@@ -61,10 +64,10 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-gray-900 truncate">
-                {item.farmer_name}
+                <TranslatedText>{item.farmer_name}</TranslatedText>
               </p>
               <p className="text-[10px] text-gray-400 capitalize">
-                {item.type} · {item.district}
+                {t(`farmers.details.fields.${item.type}`)} · <TranslatedText>{item.district}</TranslatedText>
               </p>
             </div>
             <span
@@ -74,7 +77,7 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
               )}
             >
               {isUrgent && <AlertTriangle className="w-3 h-3 inline mr-0.5" />}
-              {remaining}
+              <TranslatedText>{remaining}</TranslatedText>
             </span>
           </motion.div>
         )

@@ -1,6 +1,9 @@
 import { getScoreColor } from '@/utils/scoreUtils'
+import useLanguage from '@/hooks/useLanguage'
+import TranslatedText from '@/components/common/TranslatedText'
 
 export default function DistrictTooltip({ x, y, data }) {
+  const { t } = useLanguage()
   const scoreColor = data.avgScore !== null ? getScoreColor(data.avgScore) : null
 
   return (
@@ -14,13 +17,13 @@ export default function DistrictTooltip({ x, y, data }) {
       }}
     >
       <p className="font-semibold text-gray-900 text-sm mb-2">
-        {data.name} district
+        <TranslatedText>{data.name}</TranslatedText> {t('vulnerability.district_label')}
       </p>
 
       {data.avgScore !== null ? (
         <>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">Avg. vulnerability</span>
+            <span className="text-xs text-gray-500">{t('vulnerability.avg_vulnerability')}</span>
             <span className={`text-sm font-bold ${scoreColor?.text}`}>
               {Math.round(data.avgScore)}/100
             </span>
@@ -32,14 +35,14 @@ export default function DistrictTooltip({ x, y, data }) {
             />
           </div>
           <div className="flex justify-between text-xs text-gray-500">
-            <span>{data.farmerCount} farmers</span>
+            <span>{data.farmerCount} {t('vulnerability.farmers_count')}</span>
             <span className="text-red-500 font-medium">
-              {data.criticalCount} critical
+              {data.criticalCount} {t('vulnerability.critical')}
             </span>
           </div>
         </>
       ) : (
-        <p className="text-xs text-gray-400">No farmer data for this district</p>
+        <p className="text-xs text-gray-400">{t('vulnerability.no_data_district')}</p>
       )}
     </div>
   )
