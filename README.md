@@ -4,13 +4,16 @@ A rural AI platform prototype built with FastAPI and React.
 
 ## 🚀 Features
 - **Farmer Registration & Login**: Simple phone/password based access.
-- **FVI Calculation**: Farmer Vulnerability Index based on crop, soil, and location.
-- **Rural Advice**: Actionable advice in Gujarati for farmers.
+- **Advanced FVI Calculation**: Multi-factor Farmer Vulnerability Index based on crop sensitivity, soil compatibility, and real-time weather.
+- **Live Weather Integration**: Fetches real-time temperature and rainfall data from Open-Meteo.
+- **Smart Advisory**: Actionable, weather-aware advice in Gujarati and English.
+- **Explainable Risk**: Visual breakdown of risk factors (Crop, Soil-Crop, Weather).
 - **Clean UI**: Large fonts, high contrast, and card-based layout for rural usability.
 
 ## 🏗️ Tech Stack
-- **Backend**: FastAPI, SQLAlchemy, PostgreSQL (NeonDB).
+- **Backend**: FastAPI, SQLAlchemy, PostgreSQL (NeonDB), Requests (for Weather API).
 - **Frontend**: React (Vite), Plain CSS.
+- **Data Source**: Open-Meteo API.
 
 ## ⚙️ Setup
 
