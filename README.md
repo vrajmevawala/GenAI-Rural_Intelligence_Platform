@@ -1,35 +1,47 @@
-# GraamAI: Rural Intelligence Platform (v1 - Web)
+# 🌾 GraamAI: Rural Intelligence Platform (v1.2)
 
 GraamAI is a specialized rural intelligence platform designed to empower rural communities, institutions, and field agents with data-driven insights. By leveraging multi-dimensional data, GraamAI provides actionable intelligence for farmer vulnerability assessment, government scheme matching, and real-time risk alerting.
 
+## ✨ What's New in v1.2
+- **🌐 Triple-Language Support**: Full localization for English, Hindi, and Gujarati.
+- **🛰️ Live Weather Engine**: Real-time temperature and rainfall data via Open-Meteo integration.
+- **🧠 5-Dimension FVI**: Advanced weighted risk scoring including Soil, Water, Heat, Market, and Pest factors.
+- **⚡ Proactive Caching**: Optimized backend synchronization for instant data refreshes.
+
 ## 🚀 Key Features
 
--   **Farmer Vulnerability Index (FVI)**: A comprehensive scoring system that evaluates risk across climate, soil, market, and social dimensions.
--   **Smart Scheme Matching**: AI-driven engine that matches farmers with eligible government schemes and subsidies based on their profiles.
--   **Vulnerability Heatmap**: Interactive geospatial visualization of risk distribution across districts (powered by D3.js).
--   **Real-time Alerts**: Automated notifications for pest outbreaks, weather anomalies, and market price fluctuations.
--   **Farmer Management**: 360-degree profiles including crop history, land details, and financial status.
+-   **📊 Farmer Vulnerability Index (FVI)**: A comprehensive 5-dimension scoring system with weighted risk assessment.
+-   **🗣️ Multilingual Support**: Full localized interface for English, Hindi, and Gujarati, including dynamic content translation.
+-   **🌤️ Live Weather Intelligence**: Real-time temperature and rainfall data integration with proactive backend caching.
+-   **🤝 Smart Scheme Matching**: AI-driven engine that matches farmers with eligible government schemes and subsidies.
+-   **🗺️ Vulnerability Heatmap**: Interactive geospatial visualization of risk distribution (powered by D3.js).
+-   **🔔 Real-time Alerts**: Automated notifications for pest outbreaks, weather anomalies, and market fluctuations.
+-   **👨‍🌾 Farmer Management**: 360-degree profiles including crop history, land details, and financial status.
 
 ## 🛠️ Tech Stack
 
-### Frontend
--   **Core**: React 18 (Vite)
--   **State Management**: Zustand (with Persist middleware)
--   **Data Fetching**: TanStack Query (React Query) v5
--   **Styling**: Tailwind CSS
--   **Animations**: Framer Motion
--   **Charts & Maps**: Recharts, D3.js, React Leaflet
+### 💻 Frontend
+-   **⚛️ Core**: React 18 (Vite)
+-   **📦 State Management**: Zustand (with Persist middleware)
+-   **📡 Data Fetching**: TanStack Query (React Query) v5
+-   **🎨 Styling**: Vanilla CSS & Tailwind CSS
+-   **✨ Animations**: Framer Motion
+-   **📈 Charts & Maps**: Recharts, D3.js, React Leaflet
 
-### Backend
--   **Core**: Node.js, Express.js
--   **Database**: PostgreSQL
--   **Authentication**: JWT (JSON Web Tokens)
--   **Validation**: Joi
--   **Logging**: Morgan & custom audit logger
+### 🏗️ Backend
+-   **🟢 Core**: Node.js, Express.js
+-   **🗄️ Database**: PostgreSQL
+-   **🔑 Authentication**: JWT (JSON Web Tokens)
+-   **🛡️ Validation**: Joi
+-   **📝 Logging**: Morgan & custom audit logger
 
-## 🏗️ System Design
+### 🔌 External Integrations
+-   **🌦️ Open-Meteo**: Powering high-resolution local weather data.
+-   **🔤 Azure AI Translator**: Enabling real-time dynamic translation of farmer data.
 
-### Architecture Overview
+## 📐 System Design
+
+### 🛰️ Architecture Overview
 GraamAI follows a decoupled client-server architecture. The frontend communicates with a RESTful API backend, which interfaces with a PostgreSQL database.
 
 ```mermaid
@@ -49,12 +61,12 @@ graph TD
     FarmerService --> DB
 ```
 
-### Data Flow (FVI Calculation)
-1.  **Input**: Field agent updates farmer data (crop, soil, weather data).
-2.  **Trigger**: Recalculate action sent to backend.
-3.  **Engine**: FVI Service fetches dimensions and applies weighted risk formulas.
-4.  **Storage**: New record saved in `fvi_records`.
-5.  **Output**: Frontend polls or refreshes to display the updated score and breakdown.
+### 🔄 Data Flow (FVI & Weather)
+1.  **📥 Input**: Field agent updates farmer data or a detail page is requested.
+2.  **🧠 Intelligence**: Backend triggers a weather fetch (Open-Meteo) if cache is missing/stale.
+3.  **⚙️ Engine**: FVI Service applies weighted risk formulas across 5 environmental and social dimensions.
+4.  **🔤 Translation**: UI components use `useLanguage` hook and Azure API to present data in the user's preferred language.
+5.  **📤 Output**: Real-time score breakdown and weather cards displayed on the dashboard and detail views.
 
 ## 📁 Project Structure
 
@@ -82,11 +94,11 @@ GenAI-Rural_Intelligence_Platform/
 
 ## ⚙️ Installation & Setup
 
-### Prerequisites
+### 📋 Prerequisites
 -   Node.js >= 20.0.0
 -   PostgreSQL Database
 
-### Backend Setup
+### 💻 Backend Setup
 1.  Navigate to `/backend`.
 2.  Install dependencies: `npm install`.
 3.  Configure `.env` file:
@@ -94,12 +106,11 @@ GenAI-Rural_Intelligence_Platform/
     PORT=3000
     DATABASE_URL=your_postgres_url
     JWT_SECRET=your_jwt_secret
-    JWT_REFRESH_SECRET=your_refresh_secret
     ```
 4.  Run migrations & seed: `npm run migrate` then `npm run seed`.
 5.  Start dev server: `npm run dev`.
 
-### Frontend Setup
+### 🖥️ Frontend Setup
 1.  Navigate to `/frontend`.
 2.  Install dependencies: `npm install`.
 3.  Configure `.env` file:
@@ -109,11 +120,10 @@ GenAI-Rural_Intelligence_Platform/
 4.  Start dev server: `npm run dev`.
 
 ## 🔒 Security
--   JWT for secure stateless authentication.
--   CORS enabled for specific origins.
--   Rate limiting on API endpoints to prevent abuse.
--   HTTP-only cookies (optional configuration).
--   RBAC (Role-Based Access Control) for Institution Users and Admins.
+-   🛡️ JWT for secure stateless authentication.
+-   🌐 CORS enabled for specific origins.
+-   🚦 Rate limiting on API endpoints to prevent abuse.
+-   🔐 RBAC (Role-Based Access Control) for Institution Users and Admins.
 
 ---
-© 2026 GraamAI Rural Intelligence Platform. All rights reserved.
+© 2026 GraamAI Rural Intelligence Platform. All rights reserved. 🌾
