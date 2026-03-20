@@ -106,16 +106,12 @@ async function login(payload, ipAddress) {
     ipAddress
   });
 
+  const fullUser = await getCurrentUser(user.id);
+
   return {
     accessToken,
     refreshToken,
-    user: {
-      id: user.id,
-      institution_id: user.institution_id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    }
+    user: fullUser
   };
 }
 
@@ -146,17 +142,63 @@ async function logout(rawRefreshToken, actor, ipAddress) {
 }
 
 async function getCurrentUser(userId) {
-  const { rows } = await pool.query(
-    `SELECT id, institution_id, name, email, role, created_at
-     FROM institution_users WHERE id = $1`,
-    [userId]
-  );
+  const sql = `
+    SELECT 
+      u.id, u.institution_id, u.name, u.email, u.role, u.preferred_language, u.created_at,
+      i.name as institution_name, i.type as institution_type, i.location as institution_location
+    FROM institution_users u
+    LEFT JOIN institutions i ON u.institution_id = i.id
+    WHERE u.id = $1
+  `;
+  const { rows } = await pool.query(sql, [userId]);
 
   if (rows.length === 0) {
     throw new AppError("User not found", 404, "AUTH_INVALID_CREDENTIALS");
   }
 
-  return rows[0];
+  const user = rows[0];
+  return {
+    id: user.id,
+    institution_id: user.institution_id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    preferred_language: user.preferred_language,
+    created_at: user.created_at,
+    organization: {
+      id: user.institution_id,
+      name: user.institution_name,
+      type: user.institution_type,
+      location: user.institution_location
+    }
+  };
+}
+
+async function updateProfile(userId, payload) {
+  const fields = [];
+  const values = [];
+  let idx = 1;
+
+  ["name", "preferred_language"].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      fields.push(`${key} = $${idx}`);
+      values.push(payload[key]);
+      idx += 1;
+    }
+  });
+
+  if (fields.length === 0) return getCurrentUser(userId);
+
+  values.push(userId);
+  const sql = `
+    UPDATE institution_users
+    SET ${fields.join(", ")}
+    WHERE id = $${idx}
+    RETURNING id
+  `;
+
+  await pool.query(sql, values);
+  return getCurrentUser(userId);
 }
 
 module.exports = {
@@ -164,5 +206,6 @@ module.exports = {
   login,
   refreshSession,
   logout,
-  getCurrentUser
+  getCurrentUser,
+  updateProfile
 };

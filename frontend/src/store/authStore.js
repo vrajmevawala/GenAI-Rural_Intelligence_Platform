@@ -9,6 +9,7 @@ const useAuthStore = create(
       refreshToken: null,
       isAuthenticated: false,
       isLoading: true,
+      language: 'en',
 
       login: (user, accessToken, refreshToken) =>
         set({
@@ -28,6 +29,7 @@ const useAuthStore = create(
           refreshToken: null,
           isAuthenticated: false,
           isLoading: false,
+          language: 'en',
         })
       },
 
@@ -39,6 +41,8 @@ const useAuthStore = create(
       setAccessToken: (accessToken) => set({ accessToken }),
 
       setLoading: (isLoading) => set({ isLoading }),
+
+      setLanguage: (language) => set({ language }),
 
       hasRole: (roles) => {
         const { user } = get()
@@ -56,6 +60,7 @@ const useAuthStore = create(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        language: state.language,
       }),
     }
   )

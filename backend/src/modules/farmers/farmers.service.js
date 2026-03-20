@@ -27,8 +27,13 @@ async function listFarmers(query, limit = 10, offset = 0) {
 
   const listSql = `
     SELECT f.*, 
-           (SELECT risk_level FROM alerts WHERE farmer_id = f.id ORDER BY created_at DESC LIMIT 1) as vulnerability_label
+           fvi.score as vulnerability_score
     FROM farmers f
+    LEFT JOIN (
+      SELECT DISTINCT ON (farmer_id) farmer_id, score, created_at 
+      FROM fvi_records 
+      ORDER BY farmer_id, created_at DESC
+    ) fvi ON fvi.farmer_id = f.id
     ${where}
     ORDER BY f.created_at DESC
     LIMIT $${values.length + 1} OFFSET $${values.length + 2}
@@ -42,12 +47,20 @@ async function listFarmers(query, limit = 10, offset = 0) {
   ]);
 
   // Map fields for frontend
-  const farmers = listRes.rows.map(f => ({
-    ...f,
-    land_area_acres: f.land_size,
-    annual_income_inr: f.annual_income,
-    vulnerability_score: 45 // Dummy for list view
-  }));
+  const farmers = listRes.rows.map(f => {
+    let label = 'low';
+    if (f.vulnerability_score > 80) label = 'critical';
+    else if (f.vulnerability_score > 60) label = 'high';
+    else if (f.vulnerability_score > 40) label = 'medium';
+
+    return {
+      ...f,
+      land_area_acres: f.land_size,
+      annual_income_inr: f.annual_income,
+      vulnerability_label: label,
+      vulnerability_score: f.vulnerability_score || 0
+    };
+  });
 
   return {
     farmers,
@@ -106,7 +119,31 @@ async function getFarmerById(id) {
   
   const fvi = fviRes.rows[0] || { score: 0, breakdown: {} };
 
-  // Map fields for frontend
+  // 3. Fetch/Update Weather for district
+  let weather = null;
+  const weatherRes = await pool.query(
+    "SELECT * FROM weather_cache WHERE location = $1 OR district = $1 ORDER BY fetched_at DESC LIMIT 1",
+    [farmer.district]
+  );
+  weather = weatherRes.rows[0];
+
+  const needsRefresh = !weather || !weather.valid_until || new Date(weather.valid_until) < new Date();
+  
+  if (needsRefresh && farmer.district) {
+    try {
+      const weatherService = require('../weather/weather.service');
+      weather = await weatherService.fetchWeatherForDistrict(
+        farmer.district,
+        farmer.latitude || 22.5,
+        farmer.longitude || 72.8,
+        farmer.state || 'Gujarat'
+      );
+    } catch (err) {
+      console.error(`Weather refresh failed for ${farmer.district}:`, err.message);
+    }
+  }
+
+  // 4. Map fields for frontend
   return {
     ...farmer,
     land_area_acres: farmer.land_size,
@@ -114,27 +151,14 @@ async function getFarmerById(id) {
     primary_crop: cropsRes.rows[0]?.crop_name || "N/A",
     vulnerability_score: fvi.score,
     score_breakdown: fvi.breakdown,
+    weather: weather,
     crops: cropsRes.rows
   };
 }
 
 async function recalculateScore(id) {
-  // Mock logic: generate a new FVI record
-  const score = Math.floor(Math.random() * 100);
-  const breakdown = {
-    water: Math.random() * 20,
-    soil: Math.random() * 20,
-    weather: Math.random() * 20,
-    pest: Math.random() * 20,
-    market: Math.random() * 20
-  };
-  
-  await pool.query(
-    "INSERT INTO fvi_records (id, farmer_id, score, breakdown) VALUES ($1, $2, $3, $4)",
-    [uuidv4(), id, score, JSON.stringify(breakdown)]
-  );
-  
-  return { id, score, breakdown };
+  const vulnerabilityService = require("../vulnerability/vulnerability.service");
+  return vulnerabilityService.recalculateFarmerScore(id, { role: 'system' }, 'manual');
 }
 
 async function getScoreHistory(id) {

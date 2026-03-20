@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { useFarmers, useDeleteFarmer, useRecalculateScore } from '@/hooks/useFarmers'
 import { useDebounce } from '@/hooks/useDebounce'
 import useAuthStore from '@/store/authStore'
+import useLanguage from '@/hooks/useLanguage'
 import FarmerCard from '@/components/farmers/FarmerCard'
 import FarmerTable from '@/components/farmers/FarmerTable'
 import FarmerFilters from '@/components/farmers/FarmerFilters'
@@ -24,6 +25,7 @@ export default function FarmersPage() {
   const [sortConfig, setSortConfig] = useState({ key: 'vulnerability_score', direction: 'desc' })
   const [page, setPage] = useState(1)
   const { user } = useAuthStore()
+  const { t } = useLanguage()
   const canDelete = ['superadmin', 'org_admin'].includes(user?.role)
 
   const [filters, setFilters] = useState({
@@ -84,9 +86,9 @@ export default function FarmersPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Farmers</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('farmers.title')}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {totalCount} farmers in your organization
+            {totalCount} {t('farmers.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -111,10 +113,10 @@ export default function FarmersPage() {
             </button>
           </div>
           <Button variant="secondary" icon={Download} size="sm">
-            Export
+            {t('common.export')}
           </Button>
           <Button icon={Plus} onClick={() => setShowForm(true)}>
-            Add farmer
+            {t('farmers.add_farmer')}
           </Button>
         </div>
       </div>
@@ -174,7 +176,7 @@ export default function FarmersPage() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-auto pt-4 pb-8">
               <p className="text-xs text-gray-500">
-                Page {page} of {totalPages} · {totalCount} total
+                {t('common.page_info').replace('{page}', page).replace('{total}', totalPages)} · {totalCount} total
               </p>
               <div className="flex gap-1">
                 <Button
@@ -183,7 +185,7 @@ export default function FarmersPage() {
                   onClick={() => setPage(Math.max(1, page - 1))}
                   disabled={page === 1}
                 >
-                  Previous
+                  {t('common.previous')}
                 </Button>
                 <Button
                   size="sm"
@@ -191,7 +193,7 @@ export default function FarmersPage() {
                   onClick={() => setPage(Math.min(totalPages, page + 1))}
                   disabled={page === totalPages}
                 >
-                  Next
+                  {t('common.next')}
                 </Button>
               </div>
             </div>

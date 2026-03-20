@@ -19,5 +19,6 @@ router.post("/login", authLoginLimiter, validate({ body: loginSchema }), control
 router.post("/refresh", authRefreshLimiter, controller.refresh);
 router.post("/logout", authenticate, controller.logout);
 router.get("/me", authenticate, controller.me);
+router.patch("/profile", authenticate, controller.updateProfile);
 
 module.exports = router;

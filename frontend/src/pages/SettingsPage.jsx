@@ -1,30 +1,55 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { User, Building2, Bell, Shield, Save } from 'lucide-react'
+import { User, Building2, Bell, Shield, Save, Loader2 } from 'lucide-react'
+import { toast } from 'react-hot-toast'
 import useAuthStore from '@/store/authStore'
+import useLanguage from '@/hooks/useLanguage'
 import Card, { CardTitle, CardDescription } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Button from '@/components/ui/Button'
 import { LANGUAGES } from '@/utils/constants'
 import { cn } from '@/utils/cn'
-
-const settingsTabs = [
-  { key: 'profile', label: 'Profile', icon: User },
-  { key: 'organization', label: 'Organization', icon: Building2 },
-  { key: 'notifications', label: 'Notifications', icon: Bell },
-  { key: 'security', label: 'Security', icon: Shield },
-]
+import * as authApi from '@/api/auth.api'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState('profile')
-  const { user } = useAuthStore()
+  const { user, setUser } = useAuthStore()
+  const { language, setLanguage, t } = useLanguage()
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault()
+    const formData = new FormData(e.target)
+    const data = {
+      name: formData.get('name'),
+      preferred_language: language
+    }
+
+    try {
+      setIsSaving(true)
+      const res = await authApi.updateProfile(data)
+      setUser(res.data.data)
+      toast.success(t('common.success') || 'Profile updated')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update profile')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const settingsTabs = [
+    { key: 'profile', label: t('settings.profile'), icon: User },
+    { key: 'organization', label: t('settings.organization'), icon: Building2 },
+    { key: 'notifications', label: t('settings.notifications'), icon: Bell },
+    { key: 'security', label: t('settings.security'), icon: Shield },
+  ]
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('settings.title')}</h1>
+        <p className="text-sm text-gray-500 mt-0.5">{t('settings.subtitle')}</p>
       </div>
 
       <div className="flex gap-6">
@@ -43,27 +68,63 @@ export default function SettingsPage() {
           <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             {tab === 'profile' && (
               <Card>
-                <CardTitle>Profile information</CardTitle>
-                <CardDescription>Update your personal details</CardDescription>
-                <div className="mt-6 space-y-4 max-w-lg">
-                  <Input label="Full name" defaultValue={user?.name || ''} />
-                  <Input label="Email address" type="email" defaultValue={user?.email || ''} />
-                  <Input label="Phone" defaultValue={user?.phone || ''} />
-                  <Select label="Preferred language" options={LANGUAGES} defaultValue="en" />
-                  <Button icon={Save}>Save changes</Button>
-                </div>
+                <CardTitle>{t('settings.profile')}</CardTitle>
+                <CardDescription>{t('settings.subtitle')}</CardDescription>
+                <form onSubmit={handleSaveProfile} className="mt-6 space-y-4 max-w-lg">
+                  <Input 
+                    label="Full name" 
+                    name="name" 
+                    defaultValue={user?.name || ''} 
+                    required 
+                  />
+                  <Input 
+                    label="Email address" 
+                    type="email" 
+                    defaultValue={user?.email || ''} 
+                    disabled 
+                  />
+                  <Select 
+                    label={t('settings.language')} 
+                    options={LANGUAGES} 
+                    value={language} 
+                    onChange={(e) => setLanguage(e.target.value)} 
+                  />
+                  <Button type="submit" icon={isSaving ? Loader2 : Save} disabled={isSaving}>
+                    {isSaving ? 'Saving...' : t('common.save')}
+                  </Button>
+                </form>
               </Card>
             )}
             {tab === 'organization' && (
               <Card>
-                <CardTitle>Organization</CardTitle>
-                <CardDescription>Your organization details</CardDescription>
+                <CardTitle>{t('settings.organization')}</CardTitle>
+                <CardDescription>{t('settings.org_desc')}</CardDescription>
                 <div className="mt-6 space-y-4 max-w-lg">
-                  <Input label="Organization name" defaultValue={user?.organization?.name || 'Rural Cooperative Bank'} />
-                  <Input label="Organization type" defaultValue="Cooperative Bank" disabled />
-                  <Input label="Primary district" defaultValue="Ahmedabad" />
-                  <Input label="Contact email" defaultValue="admin@ruralcoopbank.in" />
-                  <Button icon={Save}>Save changes</Button>
+                  <Input 
+                    label={t('settings.org_name')} 
+                    defaultValue={user?.organization?.name || 'Rural Cooperative Bank'} 
+                    disabled={user?.role === 'field_officer'}
+                  />
+                  <Input 
+                    label={t('settings.org_type')} 
+                    defaultValue={user?.organization?.type || 'Cooperative Bank'} 
+                    disabled 
+                  />
+                  <Input 
+                    label={t('settings.primary_district')} 
+                    defaultValue={user?.organization?.location || 'Ahmedabad'} 
+                    disabled={user?.role === 'field_officer'}
+                  />
+                  <Input 
+                    label={t('settings.contact_email')} 
+                    defaultValue={user?.organization?.email || 'admin@ruralcoopbank.in'} 
+                    disabled={user?.role === 'field_officer'}
+                  />
+                  {user?.role !== 'field_officer' && (
+                    <Button icon={Save} onClick={() => toast.error('Organization updates not yet implemented')}>
+                      {t('common.save')}
+                    </Button>
+                  )}
                 </div>
               </Card>
             )}

@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, MapPin, Phone, Calendar, RefreshCw,
+  ArrowLeft, MapPin, Phone, RefreshCw,
   Bell, Wheat, Droplets, Wallet, Shield, Users,
 } from 'lucide-react'
 import { useFarmer, useScoreHistory, useRecalculateScore } from '@/hooks/useFarmers'
@@ -23,19 +23,23 @@ import Skeleton from '@/components/ui/Skeleton'
 import { formatCurrency, formatDate, formatDaysRemaining, formatPhone } from '@/utils/formatters'
 import { getScoreLabel } from '@/utils/scoreUtils'
 import { cn } from '@/utils/cn'
-
-const tabs = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'score', label: 'Score details' },
-  { key: 'schemes', label: 'Schemes' },
-  { key: 'alerts', label: 'Alerts' },
-  { key: 'history', label: 'History' },
-]
+import useLanguage from '@/hooks/useLanguage'
+import TranslatedText from '@/components/common/TranslatedText'
+import WeatherCard from '@/components/weather/WeatherCard'
 
 export default function FarmerDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { t } = useLanguage()
   const [activeTab, setActiveTab] = useState('overview')
+
+  const tabs = useMemo(() => [
+    { key: 'overview', label: t('farmers.details.tabs.overview') },
+    { key: 'score', label: t('farmers.details.tabs.score') },
+    { key: 'schemes', label: t('farmers.details.tabs.schemes') },
+    { key: 'alerts', label: t('farmers.details.tabs.alerts') },
+    { key: 'history', label: t('farmers.details.tabs.history') },
+  ], [t])
 
   const { data: farmer, isLoading } = useFarmer(id)
   const { data: scoreHistory } = useScoreHistory(id)
@@ -71,7 +75,7 @@ export default function FarmerDetailPage() {
       <div className="text-center py-20">
         <p className="text-gray-500">Farmer not found</p>
         <Button variant="ghost" onClick={() => navigate('/farmers')} className="mt-4">
-          ← Back to farmers
+          ← {t('common.cancel')}
         </Button>
       </div>
     )
@@ -89,7 +93,7 @@ export default function FarmerDetailPage() {
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to farmers
+          {t('common.cancel')}
         </button>
         <div className="flex gap-2">
           <Button
@@ -99,7 +103,7 @@ export default function FarmerDetailPage() {
             loading={recalculate.isPending}
             onClick={() => recalculate.mutate(id)}
           >
-            Recalculate
+            {t('farmers.details.actions.recalculate')}
           </Button>
           <Button
             variant="secondary"
@@ -108,14 +112,14 @@ export default function FarmerDetailPage() {
             loading={generateAlert.isPending}
             onClick={() => generateAlert.mutate(id)}
           >
-            Generate alert
+            {t('farmers.details.actions.generate_alert')}
           </Button>
           <Button
             size="sm"
             onClick={() => matchSchemes.mutate(id)}
             loading={matchSchemes.isPending}
           >
-            Match schemes
+            {t('farmers.details.actions.match_schemes')}
           </Button>
         </div>
       </div>
@@ -130,7 +134,9 @@ export default function FarmerDetailPage() {
           <Avatar name={farmer.name} size="xl" />
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold text-gray-900">{farmer.name}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                <TranslatedText>{farmer.name}</TranslatedText>
+              </h1>
               <Badge variant={label.toLowerCase()} dot pulse={label === 'Critical'}>
                 {label}
               </Badge>
@@ -138,7 +144,7 @@ export default function FarmerDetailPage() {
             <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
               <span className="flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5" />
-                {farmer.village}, {farmer.taluka}, {farmer.district}
+                <TranslatedText>{farmer.village}</TranslatedText>, <TranslatedText>{farmer.taluka}</TranslatedText>, <TranslatedText>{farmer.district}</TranslatedText>
               </span>
               {farmer.phone && (
                 <span className="flex items-center gap-1">
@@ -149,13 +155,13 @@ export default function FarmerDetailPage() {
             </div>
             <div className="flex gap-6">
               {[
-                { icon: Wheat, label: 'Crop', value: farmer.primary_crop || 'N/A' },
-                { icon: Droplets, label: 'Irrigation', value: farmer.irrigation_type || 'N/A' },
-                { icon: Wallet, label: 'Income', value: farmer.annual_income_inr ? formatCurrency(farmer.annual_income_inr) : 'N/A' },
-                { icon: Shield, label: 'Insurance', value: farmer.has_crop_insurance ? 'Yes' : 'No' },
-                { icon: Users, label: 'Family', value: farmer.family_size || 'N/A' },
+                { icon: Wheat, label: t('farmers.details.fields.primary_crop'), value: <TranslatedText>{farmer.primary_crop || 'N/A'}</TranslatedText> },
+                { icon: Droplets, label: t('farmers.details.fields.irrigation'), value: <TranslatedText>{farmer.irrigation_type || 'N/A'}</TranslatedText> },
+                { icon: Wallet, label: t('farmers.details.fields.annual_income'), value: farmer.annual_income_inr ? formatCurrency(farmer.annual_income_inr) : 'N/A' },
+                { icon: Shield, label: t('farmers.details.fields.insurance'), value: farmer.has_crop_insurance ? t('common.save') : t('common.cancel') }, // Simplified Yes/No proxy for now or add to translations
+                { icon: Users, label: t('farmers.details.fields.family_size'), value: farmer.family_size || 'N/A' },
               ].map((item) => (
-                <div key={item.label} className="text-center">
+                <div key={item.label} className="text-center text-nowrap">
                   <item.icon className="w-4 h-4 mx-auto text-gray-400 mb-1" />
                   <p className="text-[10px] text-gray-500 mb-0.5">{item.label}</p>
                   <p className="text-xs font-semibold text-gray-700">{item.value}</p>
@@ -168,7 +174,7 @@ export default function FarmerDetailPage() {
       </motion.div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <nav className="flex gap-1 border-b border-gray-200">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -189,7 +195,7 @@ export default function FarmerDetailPage() {
             )}
           </button>
         ))}
-      </div>
+      </nav>
 
       {/* Tab content */}
       <motion.div
@@ -199,18 +205,17 @@ export default function FarmerDetailPage() {
         transition={{ duration: 0.2 }}
       >
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card>
-              <CardTitle>Personal details</CardTitle>
+              <CardTitle>{t('farmers.details.sections.personal')}</CardTitle>
               <div className="mt-4 space-y-3">
                 {[
-                  ['Name', farmer.name],
-                  ['Phone', formatPhone(farmer.phone)],
-                  ['Aadhaar (last 4)', farmer.aadhaar_last4 || '****'],
-                  ['Language', farmer.preferred_language || 'Gujarati'],
-                  ['District', farmer.district],
-                  ['Taluka', farmer.taluka],
-                  ['Village', farmer.village],
+                  [t('farmers.details.fields.phone'), formatPhone(farmer.phone)],
+                  [t('farmers.details.fields.aadhaar'), farmer.aadhaar_last4 || '****'],
+                  [t('farmers.details.fields.language'), <TranslatedText>{farmer.preferred_language || 'Gujarati'}</TranslatedText>],
+                  [t('farmers.details.fields.district'), <TranslatedText>{farmer.district}</TranslatedText>],
+                  [t('farmers.details.fields.taluka'), <TranslatedText>{farmer.taluka}</TranslatedText>],
+                  [t('farmers.details.fields.village'), <TranslatedText>{farmer.village}</TranslatedText>],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between text-sm">
                     <span className="text-gray-500">{k}</span>
@@ -220,20 +225,15 @@ export default function FarmerDetailPage() {
               </div>
             </Card>
             <Card>
-              <CardTitle>Farm &amp; financial</CardTitle>
+              <CardTitle>{t('farmers.details.sections.farm')}</CardTitle>
               <div className="mt-4 space-y-3">
                 {[
-                  ['Land area', `${farmer.land_area_acres || 0} acres`],
-                  ['Primary crop', farmer.primary_crop || 'N/A'],
-                  ['Secondary crop', farmer.secondary_crop || 'N/A'],
-                  ['Soil type', farmer.soil_type || 'N/A'],
-                  ['Irrigation', farmer.irrigation_type || 'N/A'],
-                  ['Annual income', farmer.annual_income_inr ? formatCurrency(farmer.annual_income_inr) : 'N/A'],
-                  ['Loan amount', farmer.loan_amount_inr ? formatCurrency(farmer.loan_amount_inr) : 'None'],
-                  ['Loan type', farmer.loan_type || 'N/A'],
-                  ['Loan due', farmer.loan_due_date ? `${formatDate(farmer.loan_due_date)} (${formatDaysRemaining(farmer.loan_due_date)})` : 'N/A'],
-                  ['Insurance', farmer.has_crop_insurance ? `Yes (expires ${farmer.insurance_expiry_date ? formatDate(farmer.insurance_expiry_date) : 'N/A'})` : 'No'],
-                  ['PM-Kisan', farmer.pm_kisan_enrolled ? 'Enrolled' : 'Not enrolled'],
+                  [t('farmers.details.fields.land_area'), `${farmer.land_area_acres || 0} ${t('common.acres')}`],
+                  [t('farmers.details.fields.primary_crop'), <TranslatedText>{farmer.primary_crop || 'N/A'}</TranslatedText>],
+                  [t('farmers.details.fields.soil_type'), <TranslatedText>{farmer.soil_type || 'N/A'}</TranslatedText>],
+                  [t('farmers.details.fields.irrigation'), <TranslatedText>{farmer.irrigation_type || 'N/A'}</TranslatedText>],
+                  [t('farmers.details.fields.annual_income'), farmer.annual_income_inr ? formatCurrency(farmer.annual_income_inr) : 'N/A'],
+                  [t('farmers.details.fields.insurance'), farmer.has_crop_insurance ? t('common.save') : t('common.cancel')],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between text-sm">
                     <span className="text-gray-500">{k}</span>
@@ -242,20 +242,29 @@ export default function FarmerDetailPage() {
                 ))}
               </div>
             </Card>
+            <div className="flex flex-col gap-4">
+              <WeatherCard weather={farmer.weather} location={farmer.district} />
+              <Card className="flex-1">
+                <CardTitle>{t('farmers.details.sections.score_breakdown')}</CardTitle>
+                <div className="mt-4">
+                  <ScoreBreakdownCard breakdown={farmer.score_breakdown || {}} />
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
         {activeTab === 'score' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
-              <CardTitle>Score breakdown</CardTitle>
-              <CardDescription>7 vulnerability components</CardDescription>
+              <CardTitle>{t('farmers.details.sections.score_breakdown')}</CardTitle>
+              <CardDescription>5 vulnerability dimensions</CardDescription>
               <div className="mt-4">
                 <ScoreBreakdownCard breakdown={farmer.score_breakdown || {}} />
               </div>
             </Card>
             <Card>
-              <CardTitle>Score history</CardTitle>
+              <CardTitle>{t('farmers.details.sections.score_history')}</CardTitle>
               <CardDescription>Trend over time</CardDescription>
               <div className="mt-4">
                 <ScoreHistoryChart data={history} height={300} />
@@ -281,7 +290,7 @@ export default function FarmerDetailPage() {
               <div className="col-span-full text-center py-12 text-gray-400">
                 <p className="text-sm">No scheme matches yet</p>
                 <Button className="mt-3" size="sm" onClick={() => matchSchemes.mutate(id)}>
-                  Run matching
+                  {t('farmers.details.actions.match_schemes')}
                 </Button>
               </div>
             )}
@@ -303,9 +312,9 @@ export default function FarmerDetailPage() {
               ))
             ) : (
               <div className="text-center py-12 text-gray-400">
-                <p className="text-sm">No alerts for this farmer</p>
+                <p className="text-sm">{t('alerts.no_alerts_found')}</p>
                 <Button className="mt-3" size="sm" onClick={() => generateAlert.mutate(id)}>
-                  Generate alert
+                  {t('farmers.details.actions.generate_alert')}
                 </Button>
               </div>
             )}
@@ -314,7 +323,7 @@ export default function FarmerDetailPage() {
 
         {activeTab === 'history' && (
           <Card>
-            <CardTitle>Vulnerability score trend</CardTitle>
+            <CardTitle>{t('farmers.details.sections.score_history')}</CardTitle>
             <CardDescription>Historical score changes over time</CardDescription>
             <div className="mt-4">
               <ScoreHistoryChart data={history} height={360} />

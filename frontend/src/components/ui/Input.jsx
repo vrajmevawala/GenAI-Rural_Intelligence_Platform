@@ -14,8 +14,9 @@ const Input = forwardRef(
     },
     ref
   ) => {
+    const [internalValue, setInternalValue] = useState(props.defaultValue || props.value || '')
     const [focused, setFocused] = useState(false)
-    const hasValue = props.value !== undefined ? !!props.value : false
+    const hasValue = props.value !== undefined ? !!props.value : !!internalValue
 
     return (
       <div className={cn('relative', containerClassName)}>
@@ -51,6 +52,10 @@ const Input = forwardRef(
             onBlur={(e) => {
               setFocused(false)
               props.onBlur?.(e)
+            }}
+            onChange={(e) => {
+              setInternalValue(e.target.value)
+              props.onChange?.(e)
             }}
             className={cn(
               'w-full rounded-lg border bg-white px-3 text-sm text-gray-900',
