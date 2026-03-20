@@ -1,22 +1,29 @@
-const { successResponse } = require("../../utils/apiResponse");
+const { successResponse, errorResponse } = require("../../utils/apiResponse");
 const authService = require("./auth.service");
 
 const REFRESH_COOKIE_NAME = "refresh_token";
 
+function getCookieOptions() {
+  const sameSite = process.env.COOKIE_SAME_SITE || (process.env.NODE_ENV === "production" ? "none" : "lax");
+  const secure = process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    sameSite,
+    secure
+  };
+}
+
 function setRefreshCookie(res, token) {
   res.cookie(REFRESH_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    ...getCookieOptions(),
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
 }
 
 function clearRefreshCookie(res) {
   res.clearCookie(REFRESH_COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production"
+    ...getCookieOptions()
   });
 }
 
@@ -47,6 +54,12 @@ async function login(req, res, next) {
 async function refresh(req, res, next) {
   try {
     const rawRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!rawRefreshToken) {
+      return res
+        .status(401)
+        .json(errorResponse("AUTH_SESSION_MISSING", "No refresh session cookie found", []));
+    }
+
     const data = await authService.refreshSession(rawRefreshToken, req.ip);
     setRefreshCookie(res, data.refreshToken);
     res.status(200).json(successResponse({ access_token: data.accessToken }, "Token refreshed"));
