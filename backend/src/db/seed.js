@@ -1,5 +1,5 @@
 const dotenv = require("dotenv");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const { pool } = require("../config/db");
 const { GOVERNMENT_SCHEMES } = require("../config/constants");
