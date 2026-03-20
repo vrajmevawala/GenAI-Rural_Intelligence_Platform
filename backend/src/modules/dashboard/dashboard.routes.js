@@ -11,5 +11,6 @@ router.get(
   requireRole("field_officer", "org_admin", "superadmin"),
   controller.activityFeed
 );
+router.get("/admin-stats", requireRole("superadmin"), controller.adminStats);
 
 module.exports = router;

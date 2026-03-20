@@ -47,7 +47,8 @@ export default function GujaratDistrictMap({ onDistrictClick, selectedDistrict }
     const districtLookup = {}
     if (Array.isArray(heatmapData)) {
       heatmapData.forEach((d) => {
-        districtLookup[d.district.toLowerCase()] = d
+        const key = (d.district || '').toLowerCase()
+        if (key) districtLookup[key] = d
       })
     }
 

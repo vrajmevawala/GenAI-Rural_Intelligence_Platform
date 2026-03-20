@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { router } from '@/router'
 import { usePendingAlerts } from '@/hooks/useAlerts'
+import { useInitAuth } from '@/hooks/useAuth'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,9 +24,15 @@ function AlertPoller() {
   return null
 }
 
+function AuthInitializer() {
+  useInitAuth()
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthInitializer />
       <AlertPoller />
       <RouterProvider router={router} />
       <Toaster

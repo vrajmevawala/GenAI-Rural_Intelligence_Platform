@@ -8,7 +8,7 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
+  ssl: process.env.DATABASE_SSL === "true" || (process.env.DATABASE_URL && process.env.DATABASE_URL.includes("neon.tech")) ? { rejectUnauthorized: false } : false
 });
 
 pool.on("error", (err) => {

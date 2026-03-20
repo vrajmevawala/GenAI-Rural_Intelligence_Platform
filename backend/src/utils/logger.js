@@ -25,30 +25,40 @@ function error(message, meta) {
   log("error", message, meta);
 }
 
-async function writeAuditLog({
-  userId = null,
-  action,
-  entityType,
-  entityId,
-  oldValues = null,
-  newValues = null,
-  ipAddress = null
-}) {
-  const sql = `
-    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  `;
+async function writeAuditLog(payload) {
+  try {
+    const {
+      userId = null,
+      action,
+      entityType,
+      entityId,
+      oldValues = null,
+      newValues = null,
+      ipAddress = null
+    } = payload;
 
-  await pool.query(sql, [
-    uuidv4(),
-    userId,
-    action,
-    entityType,
-    entityId,
-    oldValues,
-    newValues,
-    ipAddress
-  ]);
+    const sql = `
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `;
+
+    await pool.query(sql, [
+      uuidv4(),
+      userId,
+      action,
+      entityType,
+      entityId,
+      oldValues,
+      newValues,
+      ipAddress
+    ]);
+  } catch (err) {
+    // Gracefully handle missing audit_logs table (since we are limited to 16 tables)
+    warn("Failed to write audit log to DB (table might be missing)", {
+      error: err.message,
+      auditAction: payload.action
+    });
+  }
 }
 
 async function withAudit(auditPayload, operationFn) {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { LayoutGrid, List, Plus, Download } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useFarmers, useDeleteFarmer, useRecalculateScore } from '@/hooks/useFarmers'
 import { useDebounce } from '@/hooks/useDebounce'
 import useAuthStore from '@/store/authStore'
@@ -40,8 +40,12 @@ export default function FarmersPage() {
     Object.entries(filters).forEach(([key, val]) => {
       if (val) params[key] = val
     })
-    setSearchParams(params, { replace: true })
-  }, [filters])
+    // Only update if different to avoid potential loops
+    const currentParams = Object.fromEntries(searchParams.entries())
+    if (JSON.stringify(params) !== JSON.stringify(currentParams)) {
+      setSearchParams(params, { replace: true })
+    }
+  }, [filters, searchParams, setSearchParams])
 
   const queryParams = {
     ...filters,
@@ -52,16 +56,15 @@ export default function FarmersPage() {
     sort_order: sortConfig.direction,
   }
 
-  Object.keys(queryParams).forEach((k) => {
-    if (!queryParams[k]) delete queryParams[k]
-  })
-
   const { data, isLoading } = useFarmers(queryParams)
   const deleteFarmer = useDeleteFarmer()
   const recalculate = useRecalculateScore()
   const createFarmer = useCreateFarmer()
 
-  const farmers = Array.isArray(data) ? data : data?.farmers || []
+  // Ultra-defensive farmer extraction
+  const rawFarmers = Array.isArray(data) ? data : data?.farmers || []
+  const farmers = rawFarmers.filter(f => f && f.id)
+  
   const totalCount = data?.total || data?.pagination?.total || farmers.length
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
 
@@ -77,9 +80,9 @@ export default function FarmersPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Farmers</h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -87,7 +90,6 @@ export default function FarmersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* View toggle */}
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setView('grid')}
@@ -117,7 +119,7 @@ export default function FarmersPage() {
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-1 min-h-0">
         {/* Filter sidebar */}
         <div className="w-64 flex-shrink-0">
           <FarmerFilters
@@ -128,7 +130,7 @@ export default function FarmersPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-y-auto pr-1">
           {isLoading ? (
             view === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -151,24 +153,26 @@ export default function FarmersPage() {
               }
             />
           ) : view === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-6">
               {farmers.map((farmer, i) => (
                 <FarmerCard key={farmer.id} farmer={farmer} index={i} />
               ))}
             </div>
           ) : (
-            <FarmerTable
-              farmers={farmers}
-              sortConfig={sortConfig}
-              onSort={handleSort}
-              onDelete={canDelete ? (id) => deleteFarmer.mutate(id) : undefined}
-              onRecalculate={(id) => recalculate.mutate(id)}
-            />
+            <div className="pb-6">
+              <FarmerTable
+                farmers={farmers}
+                sortConfig={sortConfig}
+                onSort={handleSort}
+                onDelete={canDelete ? (id) => deleteFarmer.mutate(id) : undefined}
+                onRecalculate={(id) => recalculate.mutate(id)}
+              />
+            </div>
           )}
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center justify-between mt-auto pt-4 pb-8">
               <p className="text-xs text-gray-500">
                 Page {page} of {totalPages} · {totalCount} total
               </p>
