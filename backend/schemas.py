@@ -10,6 +10,7 @@ class CropBase(BaseModel):
     water_requirement: str
     season: str
     risk_level: str
+    heat_tolerance: str
 
 class CropCreate(CropBase):
     pass
@@ -53,6 +54,8 @@ class FVIResponse(BaseModel):
     fvi_score: float
     risk_level: str
     breakdown: dict
+    weather: dict
+    weather_message: Optional[str] = None
 
 # Alert Response
 class AlertResponse(BaseModel):

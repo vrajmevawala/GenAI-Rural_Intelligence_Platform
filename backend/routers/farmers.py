@@ -7,6 +7,8 @@ from schemas import FarmerCreate, FarmerResponse, FarmerLogin, FVIResponse, Aler
 from services.fvi_service import calculate_fvi
 from services.alert_service import get_rural_advice
 
+from services.weather_service import get_weather
+
 router = APIRouter(prefix="/farmers", tags=["farmers"])
 
 @router.post("/register", response_model=UUID)
@@ -68,26 +70,33 @@ def get_fvi(farmer_id: UUID, db: Session = Depends(get_db)):
         if not crop:
             raise HTTPException(status_code=404, detail="Crop not found for this farmer")
         
-        return calculate_fvi(farmer, crop)
+        weather = get_weather(farmer.district)
+        return calculate_fvi(farmer, crop, weather)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="FVI calculation failed")
+        raise HTTPException(status_code=500, detail=f"FVI calculation failed: {str(e)}")
 
 @router.get("/{farmer_id}/alert", response_model=AlertResponse)
 def get_alert(farmer_id: UUID, db: Session = Depends(get_db)):
-    farmer = db.query(Farmer).filter(Farmer.id == farmer_id).first()
-    if not farmer:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-    
-    crop = db.query(Crop).filter(Crop.id == farmer.crop_id).first()
-    if not crop:
-        raise HTTPException(status_code=404, detail="Crop not found for this farmer")
-    
-    fvi_data = calculate_fvi(farmer, crop)
-    advice = get_rural_advice(fvi_data["risk_level"], language=farmer.language)
-    
-    return {"advice": advice}
+    try:
+        farmer = db.query(Farmer).filter(Farmer.id == farmer_id).first()
+        if not farmer:
+            raise HTTPException(status_code=404, detail="Farmer not found")
+        
+        crop = db.query(Crop).filter(Crop.id == farmer.crop_id).first()
+        if not crop:
+            raise HTTPException(status_code=404, detail="Crop not found for this farmer")
+        
+        weather = get_weather(farmer.district)
+        fvi_data = calculate_fvi(farmer, crop, weather)
+        advice = get_rural_advice(fvi_data["risk_level"], weather, language=farmer.language)
+        
+        return {"advice": advice}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Alert generation failed")
 
 @router.put("/{farmer_id}/language")
 def update_language(farmer_id: UUID, language: str, db: Session = Depends(get_db)):

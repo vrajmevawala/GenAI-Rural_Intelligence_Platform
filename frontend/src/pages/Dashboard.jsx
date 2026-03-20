@@ -82,13 +82,57 @@ function Dashboard() {
               <div className="value">+{fviData?.breakdown?.crop}</div>
             </div>
             <div className="breakdown-item">
-              <span className="label">{t.soilFactor}</span>
-              <div className="value">+{fviData?.breakdown?.soil}</div>
+              <span className="label">{t.soilCropCompatibility}</span>
+              <div className="value">+{fviData?.breakdown?.soil_crop}</div>
             </div>
             <div className="breakdown-item">
-              <span className="label">{t.location}</span>
-              <div className="value">+{fviData?.breakdown?.location}</div>
+              <span className="label">{t.weatherRisk}</span>
+              <div className="value">+{fviData?.breakdown?.weather}</div>
             </div>
+          </div>
+
+          {/* Weather Stats Section */}
+          <div className="metric-box" style={{ 
+            marginTop: '3rem', 
+            padding: '1.5rem', 
+            background: 'rgba(59, 130, 246, 0.05)', 
+            border: '1px solid rgba(59, 130, 246, 0.1)',
+            borderRadius: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', justifyContent: 'center' }}>
+              <span style={{ fontSize: '1.5rem' }}>🌤️</span>
+              <h3 style={{ margin: 0, color: 'var(--text-main)' }}>{t.weatherStats}</h3>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-around', gap: '2rem' }}>
+              <div style={{ textAlign: 'center' }}>
+                <p className="label">{t.temperature}</p>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                  {fviData?.weather?.temperature}°C
+                </div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <p className="label">{t.rainfall}</p>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                  {fviData?.weather?.rainfall}mm
+                </div>
+              </div>
+            </div>
+
+            {fviData?.weather_message && (
+              <div style={{ 
+                marginTop: '1.5rem', 
+                padding: '1rem', 
+                borderRadius: '12px', 
+                background: 'rgba(245, 158, 11, 0.1)', 
+                color: '#d97706', 
+                fontSize: '0.95rem', 
+                fontWeight: '500',
+                border: '1px solid rgba(245, 158, 11, 0.2)'
+              }}>
+                ⚠️ {fviData.weather_message}
+              </div>
+            )}
           </div>
         </div>
 

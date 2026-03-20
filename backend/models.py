@@ -13,6 +13,7 @@ class Crop(Base):
     water_requirement = Column(String, nullable=False) # low/medium/high
     season = Column(String, nullable=False) # kharif/rabi/all
     risk_level = Column(String, nullable=False) # low/medium/high
+    heat_tolerance = Column(String, nullable=False, default="medium") # low/medium/high
 
     farmers = relationship("Farmer", back_populates="crop")
 
