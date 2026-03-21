@@ -1,6 +1,8 @@
 const { v4: uuidv4 } = require("uuid");
 const { pool } = require("../../config/db");
 const { AppError } = require("../../middleware/errorHandler");
+const whatsappService = require("../whatsapp/whatsapp.service");
+const logger = require("../../utils/logger");
 
 async function listAlerts(farmerId) {
   let sql = "SELECT * FROM alerts";
@@ -30,6 +32,7 @@ async function generateAlertsForFarmer(user, farmerId, ip) {
   // Simple logic: create a dummy alert for the farmer
   const farmerRes = await pool.query("SELECT * FROM farmers WHERE id = $1", [farmerId]);
   if (farmerRes.rowCount === 0) throw new AppError("Farmer not found", 404);
+  const farmer = farmerRes.rows[0];
   
   const id = uuidv4();
   const sql = `
@@ -46,6 +49,27 @@ async function generateAlertsForFarmer(user, farmerId, ip) {
     "pending"
   ];
   const { rows } = await pool.query(sql, values);
+
+  // Auto-trigger WhatsApp delivery for freshly generated alerts.
+  // Keep alert generation successful even if WhatsApp send fails.
+  try {
+    const organizationId = user?.institutionId || farmer.organization_id;
+    if (organizationId) {
+      await whatsappService.initiateBot(farmerId, organizationId, "gu");
+    } else {
+      logger.warn("Skipping WhatsApp auto-send: organizationId missing", {
+        farmerId,
+        action: "alerts.whatsapp.autosend.skipped",
+      });
+    }
+  } catch (err) {
+    logger.error("WhatsApp auto-send failed after alert generation", {
+      farmerId,
+      error: err.message,
+      action: "alerts.whatsapp.autosend.failed",
+    });
+  }
+
   return rows[0];
 }
 

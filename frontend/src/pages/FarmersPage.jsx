@@ -211,7 +211,16 @@ export default function FarmersPage() {
       >
         <FarmerForm
           onSubmit={(data) => {
-            createFarmer.mutate(data, {
+            const payload = {
+              ...data,
+              name: data.name?.trim(),
+              phone: data.phone?.trim(),
+              district: data.district?.trim(),
+              taluka: data.taluka?.trim(),
+              village: data.village?.trim(),
+            }
+
+            createFarmer.mutate(payload, {
               onSuccess: () => setShowForm(false),
             })
           }}

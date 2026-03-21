@@ -15,10 +15,25 @@ async function createDefaultUser() {
     const password = "Admin@1234";
     const passwordHash = await bcrypt.hash(password, 12);
 
+    const existing = await pool.query(
+      "SELECT id FROM institution_users WHERE email = $1 LIMIT 1",
+      [email]
+    );
+
+    if (existing.rowCount > 0) {
+      await pool.query(
+        "UPDATE institution_users SET password = $1, role = $2 WHERE id = $3",
+        [passwordHash, "superadmin", existing.rows[0].id]
+      );
+      console.log("Default superadmin already existed; password updated successfully:");
+      console.log("Email:", email);
+      console.log("Password:", password);
+      process.exit(0);
+    }
+
     await pool.query(
       `INSERT INTO institution_users (id, institution_id, name, email, password, role)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (email) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [uuidv4(), institutionId, "Default Admin", email, passwordHash, "superadmin"]
     );
 

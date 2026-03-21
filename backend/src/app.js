@@ -19,6 +19,7 @@ const dashboardRoutes = require("./modules/dashboard/dashboard.routes");
 const diseaseRoutes = require("./modules/disease/disease.routes");
 const locationsRoutes = require("./modules/locations/locations.routes");
 const translationRoutes = require("./modules/translation/translation.routes");
+const whatsappRoutes = require("./modules/whatsapp/whatsapp.routes");
 
 dotenv.config();
 
@@ -42,6 +43,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
 app.use(cookieParser());
 app.use(morgan("combined"));
 app.use(generalLimiter);
@@ -62,6 +64,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/disease", diseaseRoutes);
 app.use("/api/locations", locationsRoutes);
 app.use("/api/translate", translationRoutes);
+app.use("/api/whatsapp", whatsappRoutes);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404, "NOT_FOUND"));

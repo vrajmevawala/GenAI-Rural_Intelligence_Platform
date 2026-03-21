@@ -1,4 +1,4 @@
-export const APP_NAME = 'GraamAI'
+export const APP_NAME = 'KhedutMitra'
 
 export const ROLES = {
   SUPERADMIN: 'superadmin',

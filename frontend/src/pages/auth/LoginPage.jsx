@@ -52,7 +52,7 @@ export default function LoginPage() {
           <div className="w-10 h-10 bg-white/10 backdrop-blur border border-white/20 rounded-xl flex items-center justify-center">
             <Leaf className="w-5 h-5 text-white" />
           </div>
-          <span className="text-2xl font-bold text-white">GraamAI</span>
+          <span className="text-2xl font-bold text-white">KhedutMitra</span>
         </motion.div>
 
         {/* Content */}
@@ -111,7 +111,7 @@ export default function LoginPage() {
             <div className="w-8 h-8 bg-[#0F4C35] rounded-lg flex items-center justify-center">
               <Leaf className="w-4 h-4 text-white" />
             </div>
-            <span className="text-xl font-bold text-gray-900">GraamAI</span>
+            <span className="text-xl font-bold text-gray-900">KhedutMitra</span>
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900 mb-1">Welcome back</h2>

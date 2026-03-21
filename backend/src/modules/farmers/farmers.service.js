@@ -2,6 +2,54 @@ const { v4: uuidv4 } = require("uuid");
 const { pool } = require("../../config/db");
 const { AppError } = require("../../middleware/errorHandler");
 
+function normalizePhoneNumber(phone) {
+  if (!phone) return null;
+  const trimmed = String(phone).trim();
+  if (trimmed.startsWith("+")) return trimmed;
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  return trimmed;
+}
+
+function mapFarmerPayload(payload = {}) {
+  return {
+    name: payload.name,
+    phone: normalizePhoneNumber(payload.phone),
+    password: payload.password || null,
+    language: payload.language || payload.preferred_language || "en",
+    district: payload.district || null,
+    village: payload.village || null,
+    latitude: payload.latitude || null,
+    longitude: payload.longitude || null,
+    soil_type: payload.soil_type || null,
+    land_size: payload.land_size ?? payload.land_area_acres ?? null,
+    annual_income: payload.annual_income ?? payload.annual_income_inr ?? null
+  };
+}
+
+function mapPostgresError(err) {
+  if (!err || !err.code) return null;
+
+  if (err.code === "23505") {
+    if (String(err.constraint || "").includes("phone")) {
+      return new AppError("Phone number already exists", 409, "FARMER_PHONE_EXISTS");
+    }
+    return new AppError("Duplicate value", 409, "DUPLICATE_VALUE");
+  }
+
+  if (err.code === "23502") {
+    return new AppError(`Missing required field: ${err.column || "unknown"}`, 400, "VALIDATION_ERROR");
+  }
+
+  if (err.code === "22P02") {
+    return new AppError("Invalid input format", 400, "VALIDATION_ERROR");
+  }
+
+  return null;
+}
+
 async function listFarmers(query, limit = 10, offset = 0) {
   const whereParts = [];
   const values = [];
@@ -71,6 +119,16 @@ async function listFarmers(query, limit = 10, offset = 0) {
 }
 
 async function createFarmer(payload) {
+  const mapped = mapFarmerPayload(payload);
+
+  if (!mapped.name || String(mapped.name).trim().length < 2) {
+    throw new AppError("Name is required", 400, "VALIDATION_ERROR");
+  }
+
+  if (!mapped.phone || !/^\+\d{10,15}$/.test(mapped.phone)) {
+    throw new AppError("Phone must be in E.164 format (e.g. +919876543210)", 400, "VALIDATION_ERROR");
+  }
+
   const id = uuidv4();
   const sql = `
     INSERT INTO farmers (
@@ -85,13 +143,19 @@ async function createFarmer(payload) {
   `;
 
   const values = [
-    id, payload.name, payload.phone, payload.password || null, payload.language || "en",
-    payload.district, payload.village, payload.latitude || null, payload.longitude || null,
-    payload.soil_type, payload.land_size, payload.annual_income
+    id, mapped.name, mapped.phone, mapped.password, mapped.language,
+    mapped.district, mapped.village, mapped.latitude, mapped.longitude,
+    mapped.soil_type, mapped.land_size, mapped.annual_income
   ];
 
-  const { rows } = await pool.query(sql, values);
-  return rows[0];
+  try {
+    const { rows } = await pool.query(sql, values);
+    return rows[0];
+  } catch (err) {
+    const mappedError = mapPostgresError(err);
+    if (mappedError) throw mappedError;
+    throw err;
+  }
 }
 
 async function getFarmerById(id) {

@@ -10,7 +10,7 @@ dotenv.config();
 const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, async () => {
-  info("GraamAI backend started", { port: PORT });
+  info("KhedutMitra backend started", { port: PORT });
 
   scheduleVulnerabilityRecalcJob();
   scheduleSchemeExpiryAlertJob();

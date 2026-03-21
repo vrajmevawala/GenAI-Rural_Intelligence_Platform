@@ -29,7 +29,11 @@ export function useCreateFarmer() {
       toast.success('Farmer created successfully')
     },
     onError: (err) => {
-      toast.error(err.response?.data?.message || 'Failed to create farmer')
+      toast.error(
+        err.response?.data?.error?.message
+        || err.response?.data?.message
+        || 'Failed to create farmer'
+      )
     },
   })
 }

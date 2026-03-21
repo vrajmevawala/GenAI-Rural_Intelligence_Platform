@@ -56,7 +56,7 @@ export default function Sidebar() {
                 exit={{ opacity: 0, width: 0 }}
                 className="text-lg font-bold text-gray-900 whitespace-nowrap overflow-hidden"
               >
-                GraamAI
+                KhedutMitra
               </motion.span>
             )}
           </AnimatePresence>

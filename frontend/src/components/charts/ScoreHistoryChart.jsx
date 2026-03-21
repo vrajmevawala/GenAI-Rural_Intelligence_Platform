@@ -3,6 +3,17 @@ import {
 } from 'recharts'
 import { format } from 'date-fns'
 
+function toValidDate(value) {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function toFiniteNumber(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
@@ -16,11 +27,20 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function ScoreHistoryChart({ data = [], height = 260 }) {
-  const formatted = data.map((d) => ({
-    ...d,
-    date: format(new Date(d.calculated_at || d.date), 'dd MMM'),
-    score: d.total_score ?? d.score,
-  }))
+  const formatted = data
+    .map((d) => {
+      const date = toValidDate(d.calculated_at || d.date || d.created_at)
+      const score = toFiniteNumber(d.total_score ?? d.score)
+
+      if (!date || score === null) return null
+
+      return {
+        ...d,
+        date: format(date, 'dd MMM'),
+        score,
+      }
+    })
+    .filter(Boolean)
 
   return (
     <ResponsiveContainer width="100%" height={height}>

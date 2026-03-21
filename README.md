@@ -1,6 +1,6 @@
-# 🌾 GraamAI: Rural Intelligence Platform (v1.2)
+# 🌾 KhedutMitra: Rural Intelligence Platform (v1.2)
 
-GraamAI is a specialized rural intelligence platform designed to empower rural communities, institutions, and field agents with data-driven insights. By leveraging multi-dimensional data, GraamAI provides actionable intelligence for farmer vulnerability assessment, government scheme matching, and real-time risk alerting.
+KhedutMitra is a specialized rural intelligence platform designed to empower rural communities, institutions, and field agents with data-driven insights. By leveraging multi-dimensional data, KhedutMitra provides actionable intelligence for farmer vulnerability assessment, government scheme matching, and real-time risk alerting.
 
 ## ✨ What's New in v1.2
 - **🌐 Triple-Language Support**: Full localization for English, Hindi, and Gujarati.
@@ -42,7 +42,7 @@ GraamAI is a specialized rural intelligence platform designed to empower rural c
 ## 📐 System Design
 
 ### 🛰️ Architecture Overview
-GraamAI follows a decoupled client-server architecture. The frontend communicates with a RESTful API backend, which interfaces with a PostgreSQL database.
+KhedutMitra follows a decoupled client-server architecture. The frontend communicates with a RESTful API backend, which interfaces with a PostgreSQL database.
 
 ```mermaid
 graph TD
@@ -126,4 +126,4 @@ GenAI-Rural_Intelligence_Platform/
 -   🔐 RBAC (Role-Based Access Control) for Institution Users and Admins.
 
 ---
-© 2026 GraamAI Rural Intelligence Platform. All rights reserved. 🌾
+© 2026 KhedutMitra Rural Intelligence Platform. All rights reserved. 🌾

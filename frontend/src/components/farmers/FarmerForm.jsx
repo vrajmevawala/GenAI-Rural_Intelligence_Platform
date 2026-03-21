@@ -11,13 +11,13 @@ import { GUJARAT_DISTRICTS, CROP_TYPES, SOIL_TYPES, IRRIGATION_TYPES, LOAN_TYPES
 import { cn } from '@/utils/cn'
 
 const step1Schema = z.object({
-  name: z.string().min(2, 'Name is required'),
-  phone: z.string().min(10, 'Valid phone number required'),
+  name: z.string().trim().min(2, 'Name is required'),
+  phone: z.string().trim().min(10, 'Valid phone number required'),
   aadhaar_last4: z.string().length(4, 'Enter last 4 digits').optional().or(z.literal('')),
-  preferred_language: z.string().min(1, 'Select language'),
-  district: z.string().min(1, 'Select district'),
-  taluka: z.string().min(1, 'Taluka is required'),
-  village: z.string().min(1, 'Village is required'),
+  preferred_language: z.string().trim().min(1, 'Select language'),
+  district: z.string().trim().min(1, 'Select district'),
+  taluka: z.string().trim().min(1, 'Taluka is required'),
+  village: z.string().trim().min(1, 'Village is required'),
 })
 
 const step2Schema = z.object({
@@ -50,6 +50,7 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
     register,
     handleSubmit,
     trigger,
+    getValues,
     formState: { errors },
     watch,
   } = useForm({
@@ -70,7 +71,7 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
   const handleNext = async () => {
     const valid = await trigger()
     if (valid && step < 2) setStep(step + 1)
-    if (valid && step === 2) handleSubmit(onSubmit)()
+    if (valid && step === 2) onSubmit(getValues())
   }
 
   const hasInsurance = watch('has_crop_insurance')

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, MapPin, Phone, RefreshCw,
-  Bell, Wheat, Droplets, Wallet, Shield, Users,
+  Bell, Wheat, Droplets, Wallet, Shield, Users, MessageCircle,
 } from 'lucide-react'
 import { useFarmer, useScoreHistory, useRecalculateScore } from '@/hooks/useFarmers'
 import { useSchemeMatches, useMatchSchemes } from '@/hooks/useSchemes'
@@ -26,6 +26,7 @@ import { cn } from '@/utils/cn'
 import useLanguage from '@/hooks/useLanguage'
 import TranslatedText from '@/components/common/TranslatedText'
 import WeatherCard from '@/components/weather/WeatherCard'
+import { useSendWhatsAppAlert } from '@/hooks/useWhatsApp'
 
 export default function FarmerDetailPage() {
   const { id } = useParams()
@@ -48,6 +49,7 @@ export default function FarmerDetailPage() {
   const recalculate = useRecalculateScore()
   const matchSchemes = useMatchSchemes()
   const generateAlert = useGenerateAlert()
+  const sendWhatsAppAlert = useSendWhatsAppAlert()
   const updateMatchStatus = useUpdateMatchStatus()
   const updateAlertStatus = useUpdateAlertStatus()
 
@@ -96,6 +98,15 @@ export default function FarmerDetailPage() {
           {t('common.cancel')}
         </button>
         <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={MessageCircle}
+            loading={sendWhatsAppAlert.isPending}
+            onClick={() => sendWhatsAppAlert.mutate({ farmerId: id, language: 'gu' })}
+          >
+            Send WhatsApp
+          </Button>
           <Button
             variant="secondary"
             icon={RefreshCw}

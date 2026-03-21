@@ -1,7 +1,7 @@
 {
   "name": "graamai-backend",
   "version": "1.0.0",
-  "description": "Backend for GraamAI rural intelligence platform",
+  "description": "Backend for KhedutMitra rural intelligence platform",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -27,6 +27,7 @@
     "morgan": "^1.10.0",
     "node-cron": "^3.0.3",
     "pg": "^8.12.0",
+    "twilio": "^4.23.0",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

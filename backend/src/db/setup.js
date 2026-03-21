@@ -5,16 +5,20 @@ const { pool } = require('../config/db');
 async function run() {
   const client = await pool.connect();
   try {
-    console.log('Dropping schema...');
-    await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public; CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
-    
-    console.log('Running 001_init.sql...');
-    const sql1 = fs.readFileSync(path.join(__dirname, 'migrations', '001_init.sql'), 'utf8');
-    await client.query(sql1);
-    
-    console.log('Running graamai_full_seed.sql...');
-    const sql2 = fs.readFileSync(path.join(__dirname, 'graamai_full_seed.sql'), 'utf8');
-    await client.query(sql2);
+    console.log('Dropping and recreating schema...');
+    await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
+
+    const migrationDir = path.join(__dirname, 'migrations');
+    const migrationFiles = fs
+      .readdirSync(migrationDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    for (const file of migrationFiles) {
+      console.log(`Running ${file}...`);
+      const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8');
+      await client.query(sql);
+    }
     
     console.log('Done successfully!');
     process.exit(0);
