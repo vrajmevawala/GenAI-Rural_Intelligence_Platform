@@ -42,7 +42,7 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
 
         return (
           <motion.div
-            key={item.id}
+            key={`${item.farmer_id || item.id || 'farmer'}-${item.type || 'unknown'}-${item.expiry_date || idx}-${idx}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: idx * 0.05 }}

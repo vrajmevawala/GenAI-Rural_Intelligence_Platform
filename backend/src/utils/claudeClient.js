@@ -70,6 +70,83 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 800) {
   throw new Error("Claude API failed after retries");
 }
 
+async function callClaudeWithImage(imageUrl, prompt, language = 'gu', maxTokens = 400) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
+  }
+
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!twilioSid || !twilioToken) {
+    throw new Error("Twilio credentials are required to download WhatsApp media");
+  }
+
+  const imageResponse = await fetch(imageUrl, {
+    headers: {
+      Authorization: "Basic " + Buffer.from(`${twilioSid}:${twilioToken}`).toString("base64")
+    }
+  });
+
+  if (!imageResponse.ok) {
+    throw new Error(`Failed to download image: ${imageResponse.status}`);
+  }
+
+  const imageBuffer = await imageResponse.arrayBuffer();
+  const base64Image = Buffer.from(imageBuffer).toString("base64");
+  const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+
+  const payload = {
+    model: MODEL,
+    max_tokens: maxTokens,
+    system: `Reply in ${language}. Plain text only. No markdown or asterisks.`,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: contentType,
+              data: base64Image
+            }
+          },
+          {
+            type: "text",
+            text: prompt
+          }
+        ]
+      }
+    ]
+  };
+
+  const response = await fetch(ANTHROPIC_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    error("Claude image API error", { status: response.status, body: data });
+    throw new Error(`Claude API error: ${data.error?.message || "unknown error"}`);
+  }
+
+  const text = (data.content || [])
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  return text;
+}
+
 module.exports = {
-  callClaude
+  callClaude,
+  callClaudeWithImage
 };

@@ -68,9 +68,13 @@ async function handleWebhook(req, res, next) {
     }
 
     const fromPhone = req.body.From // e.g. "whatsapp:+919876543210"
-    const body = req.body.Body // farmer's reply text
+    const body = req.body.Body || '' // farmer's reply text
     const messageSid = req.body.MessageSid // Twilio message ID
     const messageStatus = req.body.MessageStatus // 'sent', 'delivered', 'read', etc.
+    const numMedia = parseInt(req.body.NumMedia || 0, 10)
+    const mediaUrl = numMedia > 0 ? req.body.MediaUrl0 : null
+    const mediaType = numMedia > 0 ? req.body.MediaContentType0 : null
+    const isImage = Boolean(mediaType && mediaType.startsWith('image/'))
 
     info('Webhook received', {
       from: fromPhone,
@@ -87,8 +91,12 @@ async function handleWebhook(req, res, next) {
     }
 
     // Handle farmer reply
-    if (fromPhone && body) {
-      await whatsappService.handleInboundMessage(fromPhone, body)
+    if (fromPhone && (body || isImage)) {
+      await whatsappService.handleInboundMessage(
+        fromPhone,
+        body,
+        isImage ? mediaUrl : null
+      )
     }
 
     // Twilio expects a TwiML response or empty 200

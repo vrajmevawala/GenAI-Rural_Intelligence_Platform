@@ -1,7 +1,11 @@
 const twilio = require('twilio')
 const { v4: uuidv4 } = require('uuid')
 const { pool } = require('../../config/db')
-const { callGrok } = require('../../utils/grokClient')
+const { callGroq } = require('../../utils/groqClient')
+const claudeClient = require('../../utils/claudeClient')
+const { generateAlert } = require('../../utils/alertGenerator')
+const { ALERT_TYPES } = require('../../utils/alertTypes')
+const { detectIntent, INTENTS } = require('./whatsapp.intent')
 const { AppError } = require('../../middleware/errorHandler')
 const logger = require('../../utils/logger')
 
@@ -101,6 +105,17 @@ async function updateStage(conversationId, newStage, contextUpdate = {}) {
   )
 }
 
+async function saveContext(conversationId, contextData = {}) {
+  await pool.query(
+    `UPDATE whatsapp_conversations
+     SET context = context || $1::jsonb,
+         updated_at = NOW(),
+         session_expires_at = NOW() + INTERVAL '24 hours'
+     WHERE id = $2`,
+    [JSON.stringify(contextData), conversationId]
+  )
+}
+
 /**
  * ─── INITIATE BOT ────────────────────────────────────────────────────────────
  * Called when a bank officer clicks "Send WhatsApp Alert" for a specific farmer
@@ -162,18 +177,33 @@ async function initiateBot(farmerId, organizationId, language = 'gu') {
 /**
  * ─── HANDLE INBOUND REPLY from farmer ────────────────────────────────────────
  */
-async function handleInboundMessage(fromPhone, body) {
+async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
   try {
     // Strip whatsapp: prefix and normalize to E.164 format
     const cleanPhone = normalizePhoneNumber(fromPhone.replace('whatsapp:', ''))
-    logger.info('WhatsApp inbound message', { from: cleanPhone, body: body.substring(0, 50), action: 'whatsapp.inbound' })
+    const inboundBody = String(body || '').trim()
+    logger.info('WhatsApp inbound message', {
+      from: cleanPhone,
+      body: inboundBody.substring(0, 80),
+      hasMedia: Boolean(mediaUrl),
+      action: 'whatsapp.inbound'
+    })
 
     // Find active conversation for this phone
     const convResult = await pool.query(
       `SELECT wc.*,
               f.name AS farmer_name,
               f.language AS preferred_language,
+              f.phone,
               f.district,
+              f.village,
+              f.land_size,
+              f.annual_income,
+              to_jsonb(f)->>'loan_type' AS loan_type,
+              (to_jsonb(f)->>'loan_due_date')::timestamp AS loan_due_date,
+              COALESCE((to_jsonb(f)->>'has_crop_insurance')::boolean, false) AS has_crop_insurance,
+              (to_jsonb(f)->>'insurance_expiry_date')::timestamp AS insurance_expiry_date,
+              COALESCE((to_jsonb(f)->>'pm_kisan_enrolled')::boolean, false) AS pm_kisan_enrolled,
               (
                 SELECT c.name
                 FROM farmer_crops fc
@@ -182,12 +212,20 @@ async function handleInboundMessage(fromPhone, body) {
                 ORDER BY fc.created_at DESC
                 LIMIT 1
               ) AS primary_crop,
-              NULL::integer AS vulnerability_score,
-              NULL::boolean AS has_crop_insurance,
-              NULL::timestamp AS insurance_expiry_date,
-              NULL::text AS loan_type,
-              NULL::timestamp AS loan_due_date,
-              NULL::boolean AS pm_kisan_enrolled
+              (
+                SELECT fr.score
+                FROM fvi_records fr
+                WHERE fr.farmer_id = f.id
+                ORDER BY fr.created_at DESC
+                LIMIT 1
+              ) AS vulnerability_score,
+              (
+                SELECT fr.risk_level
+                FROM fvi_records fr
+                WHERE fr.farmer_id = f.id
+                ORDER BY fr.created_at DESC
+                LIMIT 1
+              ) AS vulnerability_label
        FROM whatsapp_conversations wc
        JOIN farmers f ON f.id = wc.farmer_id
        WHERE wc.phone_number = $1
@@ -207,36 +245,106 @@ async function handleInboundMessage(fromPhone, body) {
     }
 
     const conv = convResult.rows[0]
-    const userText = body.trim().toLowerCase()
     logger.info('Found active conversation', { conversationId: conv.id, stage: conv.current_stage })
 
     // Save inbound message
-    await saveMessage(conv.id, 'inbound', body)
+    await saveMessage(conv.id, 'inbound', inboundBody || '[image]')
 
-    // Determine next bot action based on current stage + user input
-    const replyText = await processBotReply(conv, userText)
-    logger.info('Generated bot reply', { nextStage: replyText.nextStage, messageLength: replyText.message.length })
-
-    // Send reply
-    const sid = await sendMessage(cleanPhone, replyText.message)
-    await saveMessage(conv.id, 'outbound', replyText.message, sid)
-
-    // Update stage
-    if (replyText.nextStage) {
-      await updateStage(conv.id, replyText.nextStage, replyText.contextUpdate || {})
+    // Media messages are processed before text intent detection.
+    if (mediaUrl) {
+      const reply = await handleCropDiseaseImage(conv, mediaUrl)
+      const sid = await sendMessage(cleanPhone, reply)
+      await saveMessage(conv.id, 'outbound', reply, sid)
+      return { handled: true, conversationId: conv.id, nextStage: conv.current_stage }
     }
 
-    // Close session if done
-    if (replyText.nextStage === 'done') {
+    const detected = await detectIntent(inboundBody, conv.language, conv.current_stage)
+    const intent = detected.intent
+
+    if (String(intent || '').startsWith('lang_')) {
+      const langMap = {
+        [INTENTS.LANGUAGE_GU]: 'gu',
+        [INTENTS.LANGUAGE_HI]: 'hi',
+        [INTENTS.LANGUAGE_EN]: 'en',
+        [INTENTS.LANGUAGE_HINGLISH]: 'hinglish'
+      }
+      const newLang = langMap[intent] || 'gu'
       await pool.query(
-        `UPDATE whatsapp_conversations SET is_active = false WHERE id = $1`,
-        [conv.id]
+        'UPDATE whatsapp_conversations SET language = $1, updated_at = NOW() WHERE id = $2',
+        [newLang, conv.id]
       )
+      const confirmMsg = getLanguageSwitchConfirmation(newLang)
+      const sid = await sendMessage(cleanPhone, confirmMsg)
+      await saveMessage(conv.id, 'outbound', confirmMsg, sid)
+      await saveContext(conv.id, { last_intent: intent, language_switched_to: newLang })
+      return { handled: true, conversationId: conv.id, nextStage: conv.current_stage }
     }
 
-    return { handled: true, conversationId: conv.id, nextStage: replyText.nextStage }
+    let replyText
+    let nextStage = conv.current_stage
+
+    switch (intent) {
+      case INTENTS.INSURANCE:
+        replyText = await handleInsuranceFlow(conv)
+        nextStage = 'insurance_flow'
+        break
+      case INTENTS.PMKISAN:
+        replyText = await handlePmKisanFlow(conv)
+        nextStage = 'pmkisan_flow'
+        break
+      case INTENTS.WEATHER:
+        replyText = await handleWeatherFlow(conv)
+        nextStage = 'weather_flow'
+        break
+      case INTENTS.SCHEME:
+        replyText = await handleSchemeFlow(conv)
+        nextStage = 'scheme_flow'
+        break
+      case INTENTS.PROFILE:
+        replyText = await handleProfileView(conv)
+        break
+      case INTENTS.OFFICER:
+        replyText = await handleOfficerConnect(conv)
+        nextStage = 'officer_connect'
+        break
+      case INTENTS.MENU:
+        replyText = await generateMenuMessage(conv, conv.language)
+        nextStage = 'menu'
+        break
+      case INTENTS.YES:
+        replyText = await handleYesResponse(conv)
+        break
+      case INTENTS.NO:
+        replyText = await generateMenuMessage(conv, conv.language)
+        nextStage = 'menu'
+        break
+      case INTENTS.OTHER:
+      default:
+        replyText = await handleSmartFallback(conv, inboundBody)
+        break
+    }
+
+    if (nextStage && nextStage !== conv.current_stage) {
+      await updateStage(conv.id, nextStage)
+    }
+
+    await saveContext(conv.id, {
+      last_intent: intent,
+      last_intent_source: detected.source,
+      last_user_message: inboundBody,
+      last_stage: nextStage
+    })
+
+    const sid = await sendMessage(cleanPhone, replyText)
+    await saveMessage(conv.id, 'outbound', replyText, sid)
+
+    return { handled: true, conversationId: conv.id, nextStage }
   } catch (err) {
-    logger.error('Error handling WhatsApp inbound message', { error: err.message, from: fromPhone, body: body.substring(0, 50) })
+    logger.error('Error handling WhatsApp inbound message', {
+      error: err.message,
+      from: fromPhone,
+      body: String(body || '').substring(0, 50)
+    })
     throw err
   }
 }
@@ -245,9 +353,147 @@ async function handleInboundMessage(fromPhone, body) {
  * ─── MESSAGE GENERATION FUNCTIONS ────────────────────────────────────────────
  */
 
+async function getConversationHistory(conversationId, limit = 8) {
+  const cappedLimit = Math.min(Math.max(Number(limit) || 8, 1), 8)
+  const result = await pool.query(
+    `SELECT direction, body, created_at
+     FROM whatsapp_messages
+     WHERE conversation_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [conversationId, cappedLimit]
+  )
+
+  return result.rows
+    .reverse()
+    .map((m) => `${m.direction === 'inbound' ? 'Farmer' : 'Bot'}: ${m.body}`)
+    .join('\n')
+}
+
+async function buildContextualPrompt(conv, userMessage) {
+  const history = await getConversationHistory(conv.id, 8)
+  const farmerContext = buildFarmerContext(conv)
+
+  return `CONVERSATION HISTORY:\n${history}\n\nFARMER PROFILE:\n${farmerContext}\n\nCURRENT MESSAGE: ${userMessage}`
+}
+
+function buildFarmerContext(conv) {
+  const lines = [
+    `Name: ${conv.farmer_name || 'Farmer'}`,
+    `Crop: ${conv.primary_crop || 'N/A'}`,
+    `District: ${conv.district || 'N/A'}, ${conv.village || 'N/A'}`,
+    `Vulnerability: ${conv.vulnerability_score || 'N/A'}/100 (${conv.vulnerability_label || 'unknown'})`,
+    `Insurance: ${conv.has_crop_insurance ? `Yes, expires ${formatDate(conv.insurance_expiry_date)}` : 'No insurance'}`,
+    `PM-KISAN: ${conv.pm_kisan_enrolled ? 'Enrolled' : 'Not enrolled'}`,
+    `Loan: ${conv.loan_type || 'None'}`,
+    `Language: ${conv.language || 'gu'}`
+  ]
+  return lines.join('\n')
+}
+
+async function handleSmartFallback(conv, userMessage) {
+  const lang = conv.language || 'gu'
+  const history = await getConversationHistory(conv.id, 6)
+  const farmerContext = buildFarmerContext(conv)
+
+  const systemPrompt = `You are GraamAI, a helpful WhatsApp assistant for rural farmers in India working with Anand Cooperative Bank.
+You help with crop insurance, PM-KISAN, weather, schemes, loans, and farming advice.
+Reply in ${getLanguageName(lang)}. Keep under 200 characters.
+Use simple words, plain text only, no markdown, no asterisks.
+If you cannot answer, ask farmer to call bank officer.
+IMPORTANT: Always end with exactly: 0 for menu | 6 for officer help`
+
+  const userPrompt = `FARMER PROFILE:\n${farmerContext}\n\nRECENT CONVERSATION:\n${history}\n\nFARMER QUESTION: ${userMessage}`
+
+  try {
+    const text = await callGroq(systemPrompt, userPrompt, 220)
+    if (String(text || '').includes('0 for menu | 6 for officer help')) {
+      return String(text || '').trim()
+    }
+    return `${String(text || '').trim()}\n0 for menu | 6 for officer help`
+  } catch (err) {
+    const fallbacks = {
+      gu: '❓ હું સમજ્યો નહિ. 0 ટાઇપ કરો menu માટે અથવા 6 ટાઇપ કરો officer માટે.',
+      hi: '❓ मुझे समझ नहीं आया। 0 टाइप करें menu के लिए या 6 officer के लिए।',
+      en: "❓ I did not understand. Type 0 for menu or 6 for officer.",
+      hinglish: '❓ Samajh nahi aaya. 0 type karo menu ke liye ya 6 officer ke liye.'
+    }
+    return fallbacks[lang] || fallbacks.en
+  }
+}
+
+async function handleCropDiseaseImage(conv, imageUrl) {
+  const lang = conv.language || 'gu'
+  const langName = getLanguageName(lang)
+  const toPhone = normalizePhoneNumber(conv.phone_number || conv.phone)
+
+  const prompt = `You are an expert agricultural scientist and crop doctor in India.
+Analyze this crop image carefully.
+Reply only in ${langName}. Plain text only. No markdown. No asterisks.
+Keep total reply under 250 characters.
+Format:
+Line 1: Disease or problem name with emoji
+Line 2: Main cause (short)
+Line 3: Treatment step 1
+Line 4: Treatment step 2
+Line 5: 0 for menu | 6 for officer help
+If image is not crop related, ask for a clear crop photo.
+If image is unclear, ask for daylight photo.`
+
+  try {
+    const analyzingMsg = getAnalyzingMessage(lang)
+    await sendMessage(toPhone, analyzingMsg)
+    await saveMessage(conv.id, 'outbound', analyzingMsg)
+
+    const diagnosis = await claudeClient.callClaudeWithImage(imageUrl, prompt, lang, 400)
+
+    await saveContext(conv.id, {
+      lastImageDiagnosis: diagnosis,
+      lastImageTime: new Date().toISOString()
+    })
+
+    return diagnosis
+  } catch (err) {
+    console.error('Image diagnosis failed:', err.message)
+    const errorMessages = {
+      gu: '❌ ફોટો analyze કરી શક્યા નથી. ફરી try કરો અથવા 6 ટાઇપ કરો officer માટે.',
+      hi: '❌ फोटो analyze नहीं हो सका। फिर try करें या 6 टाइप करें officer के लिए।',
+      en: '❌ Could not analyze photo. Please try again or type 6 for officer.',
+      hinglish: '❌ Photo analyze nahi hua. Dobara try karo ya 6 type karo officer ke liye.'
+    }
+    return errorMessages[lang] || errorMessages.en
+  }
+}
+
+function getAnalyzingMessage(lang) {
+  const messages = {
+    gu: '🔍 તમારા પાકનો ફોટો analyze થઈ રહ્યો છે... 30 સેકંડ રાહ જુઓ.',
+    hi: '🔍 आपकी फसल का फोटो analyze हो रहा है... 30 सेकंड रुकें।',
+    en: '🔍 Analyzing your crop photo... Please wait 30 seconds.',
+    hinglish: '🔍 Tera fasal ka photo analyze ho raha hai... 30 second ruko.'
+  }
+  return messages[lang] || messages.en
+}
+
+async function handleYesResponse(conv) {
+  const stage = conv.current_stage
+  const lang = conv.language || 'gu'
+
+  switch (stage) {
+    case 'insurance_flow':
+      return await generateStageIntro('insurance_flow', conv, lang)
+    case 'scheme_flow':
+      return await generateStageIntro('scheme_flow', conv, lang)
+    case 'officer_connect':
+      return getOfficerConfirmation(lang)
+    default:
+      return await generateMenuMessage(conv, lang)
+  }
+}
+
 async function generateWelcomeMessage(farmer, alerts, language) {
   try {
-    // Try dynamic generation using Grok
+    // Try dynamic generation using Groq
     const alertContext = alerts.slice(0, 3)
       .map((a, i) => `${i + 1}. ${a.message || a.reason}`)
       .join('\n');
@@ -258,10 +504,10 @@ async function generateWelcomeMessage(farmer, alerts, language) {
 
     const userPrompt = `Welcome message for farmer ${farmer.name}. Crop: ${farmer.primary_crop}. District: ${farmer.district}. They have ${alerts.length} alerts. Be warm and personalized.`;
 
-    const grokResponse = await callGrok(systemPrompt, userPrompt, 200);
+    const groqResponse = await callGroq(systemPrompt, userPrompt, 200);
 
-    if (grokResponse) {
-      let msg = grokResponse;
+    if (groqResponse) {
+      let msg = groqResponse;
       if (alerts.length > 0) {
         if (language === 'gu') {
           msg += `\n\n📋 તમારા અલર્ટ્સ:\n${alertContext}`;
@@ -277,7 +523,7 @@ async function generateWelcomeMessage(farmer, alerts, language) {
       return msg;
     }
   } catch (err) {
-    logger.warn('Grok welcome generation failed, using default', {
+    logger.warn('Groq welcome generation failed, using default', {
       farmerId: farmer.id,
       error: err.message
     });
@@ -388,7 +634,7 @@ async function generateDynamicMenuHeader(conv, language) {
   try {
     const systemPrompt = `You are KhedutMitra. Write one short WhatsApp menu header in ${getLanguageName(language)} for a farmer. Keep it under 90 characters. Friendly, clear, and action-oriented. Plain text only.`
     const userPrompt = `Farmer name: ${conv.farmer_name || 'Farmer'}. Crop: ${conv.primary_crop || 'N/A'}. District: ${conv.district || 'N/A'}. Ask them to choose one service by number.`
-    const text = await callGrok(systemPrompt, userPrompt, 120)
+    const text = await callGroq(systemPrompt, userPrompt, 120)
     if (text && text.trim()) return text.trim()
   } catch (err) {
     logger.warn('Dynamic menu header failed, using fallback', {
@@ -424,7 +670,7 @@ async function handleMenuSelection(conv, input, language) {
 
 async function generateStageIntro(stage, conv, language) {
   try {
-    // Try dynamic generation with Grok based on stage and farmer context
+    // Try dynamic generation with Groq based on stage and farmer context
     const stageDescriptions = {
       insurance_flow: 'crop insurance (PMFBY) information and how to apply',
       pmkisan_flow: 'PM-KISAN scheme benefits and how to enroll',
@@ -438,10 +684,10 @@ async function generateStageIntro(stage, conv, language) {
 
     const userPrompt = `Farmer grows ${conv.primary_crop || 'crops'}, in ${conv.district || 'rural area'}. Provide specific ${stageDescriptions[stage] || 'advice'} for their situation.`;
 
-    const grokResponse = await callGrok(systemPrompt, userPrompt, 250);
-    if (grokResponse) return grokResponse;
+    const groqResponse = await callGroq(systemPrompt, userPrompt, 250);
+    if (groqResponse) return groqResponse;
   } catch (err) {
-    logger.warn('Grok stage intro failed', { stage, error: err.message });
+    logger.warn('Groq stage intro failed', { stage, error: err.message });
   }
 
   // Fallback to fixed templates
@@ -454,7 +700,7 @@ async function generateStageIntro(stage, conv, language) {
     }
     if (stage === 'weather_flow') {
       const crop = conv.primary_crop || 'આપનો પાક';
-      return `હવામાન - ${crop}:\n• આગામી સપ્તાહ ઓછો વરસાદ\n• સિંચાઈ યોજના બદલો\n• મલ્ચિંગ અપનાવો.`;
+      return `હવામાન - ${crop}:\n• આગામી સપ્તાહ ઓછો વરસાદ\n• સિંચાઈ યોજના બદલો\n• જમીન આવરણ પદ્ધતિ અપનાવો.`;
     }
     if (stage === 'scheme_flow') {
       return `સરકારી યોજનાઓ:\n• KCC: ઓછી વ્યાજે લોન\n• Soil Card: જમીન પરીક્ષણ\n• PM-KISAN: સીધો લાભ.`;
@@ -472,45 +718,79 @@ async function generateStageIntro(stage, conv, language) {
 }
 
 async function handleInsuranceFlow(conv, input, language) {
-  return {
-    message: getMenuMessage(language),
-    nextStage: 'menu'
+  const lang = language || conv.language || 'gu'
+  const intro = await generateStageIntro('insurance_flow', conv, lang)
+  const message = `${intro}\n\n0 for menu | 6 for officer help`
+
+  if (typeof input !== 'undefined') {
+    return { message, nextStage: 'menu' }
   }
+  return message
 }
 
 async function handlePmKisanFlow(conv, input, language) {
-  return { message: getMenuMessage(language), nextStage: 'menu' }
+  const lang = language || conv.language || 'gu'
+  const intro = await generateStageIntro('pmkisan_flow', conv, lang)
+  const message = `${intro}\n\n0 for menu | 6 for officer help`
+
+  if (typeof input !== 'undefined') {
+    return { message, nextStage: 'menu' }
+  }
+  return message
 }
 
 async function handleWeatherFlow(conv, input, language) {
-  return { message: getMenuMessage(language), nextStage: 'menu' }
+  const lang = language || conv.language || 'gu'
+  const intro = await generateStageIntro('weather_flow', conv, lang)
+  const message = `${intro}\n\n0 for menu | 6 for officer help`
+
+  if (typeof input !== 'undefined') {
+    return { message, nextStage: 'menu' }
+  }
+  return message
 }
 
 async function handleSchemeFlow(conv, input, language) {
-  return { message: getMenuMessage(language), nextStage: 'menu' }
+  const lang = language || conv.language || 'gu'
+  const intro = await generateStageIntro('scheme_flow', conv, lang)
+  const message = `${intro}\n\n0 for menu | 6 for officer help`
+
+  if (typeof input !== 'undefined') {
+    return { message, nextStage: 'menu' }
+  }
+  return message
 }
 
 async function handleProfileView(conv, input, language) {
-  // Fetch farmer profile and display key info
-  const farmerRes = await pool.query(
-    `SELECT name, phone, soil_type, district, village, land_size, annual_income
-     FROM farmers WHERE id = $1`,
-    [conv.farmer_id]
-  )
-  const farmer = farmerRes.rows[0]
-  if (!farmer) {
-    return { message: getProfileNotFoundMsg(language), nextStage: 'menu' }
+  const lang = language || conv.language || 'gu'
+
+  const systemPrompt = `You are GraamAI bot. Generate a farmer profile summary message in ${getLanguageName(lang)}. Keep it under 250 characters. Use simple words and plain text only.`
+
+  const userPrompt = `Farmer details:\nName: ${conv.farmer_name || 'Farmer'}\nVillage: ${conv.village || 'N/A'}, ${conv.district || 'N/A'}\nCrop: ${conv.primary_crop || 'N/A'}\nLand: ${conv.land_size || 'N/A'} acres\nVulnerability score: ${conv.vulnerability_score || 'N/A'}/100 (${conv.vulnerability_label || 'unknown'})\nInsurance: ${conv.has_crop_insurance ? 'Yes' : 'No'}\nPM-KISAN: ${conv.pm_kisan_enrolled ? 'Enrolled' : 'Not enrolled'}\nLoan: ${conv.loan_type || 'None'}\nEnd with top 1 risk or action.`
+
+  let message
+  try {
+    message = await callGroq(systemPrompt, userPrompt, 220)
+    if (!message) {
+      throw new Error('Empty Groq response')
+    }
+  } catch (err) {
+    message = getProfileNotFoundMsg(lang)
   }
 
-  const profileMsg = await formatProfileMessage(farmer, language)
-  return { message: `${profileMsg}\n\n${getMenuFollowup(language)}`, nextStage: 'menu' }
+  const finalMessage = `${String(message || '').trim()}\n0 for menu | 6 for officer help`
+
+  if (typeof input !== 'undefined') {
+    return { message: finalMessage, nextStage: 'menu' }
+  }
+  return finalMessage
 }
 
 async function formatProfileMessage(farmer, language) {
   try {
     const systemPrompt = `You are KhedutMitra. Summarize farmer profile in ${getLanguageName(language)} with clean WhatsApp formatting. Use 5-7 short lines. Plain text only, no markdown symbols.`
     const userPrompt = `Name: ${farmer.name}\nDistrict: ${farmer.district}\nVillage: ${farmer.village || 'N/A'}\nLand: ${farmer.land_size || 'N/A'} acres\nSoil: ${farmer.soil_type || 'N/A'}\nIncome: INR ${farmer.annual_income || 'N/A'}`
-    const summary = await callGrok(systemPrompt, userPrompt, 220)
+    const summary = await callGroq(systemPrompt, userPrompt, 220)
     if (summary && summary.trim()) {
       return summary.trim()
     }
@@ -534,17 +814,23 @@ async function formatProfileMessage(farmer, language) {
 }
 
 async function handleOfficerConnect(conv, input, language) {
-  // Log officer contact request
-  await pool.query(
-    `INSERT INTO alerts (id, farmer_id, message, reason, risk_level, status)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [uuidv4(), conv.farmer_id, 'Officer callback requested via WhatsApp', 
-     'Farmer requested officer callback', 'high', 'pending']
-  )
-  return {
-    message: getOfficerConfirmation(language),
-    nextStage: 'done'
+  const lang = language || conv.language || 'gu'
+  await generateAlert({
+    farmerId: conv.farmer_id,
+    organizationId: conv.organization_id,
+    alertType: ALERT_TYPES.OFFICER_CALLBACK,
+    language: lang,
+    contextData: {
+      farmerConcern: input || 'Farmer requested officer callback via WhatsApp'
+    },
+    sendWhatsAppMessage: false
+  })
+
+  const message = `${getOfficerConfirmation(lang)}\n0 for menu | 6 for officer help`
+  if (typeof input !== 'undefined') {
+    return { message, nextStage: 'done' }
   }
+  return message
 }
 
 /**
@@ -559,6 +845,15 @@ function getDaysUntil(dateStr) {
   if (!dateStr) return 'soon'
   const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24))
   return diff > 0 ? `${diff}` : 'already expired'
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A'
+  try {
+    return new Date(dateStr).toISOString().slice(0, 10)
+  } catch (err) {
+    return 'N/A'
+  }
 }
 
 function getMenuOption(type, lang) {
@@ -655,5 +950,9 @@ module.exports = {
   sendMessage,
   getOrCreateConversation,
   saveMessage,
-  updateStage
+  updateStage,
+  saveContext,
+  getConversationHistory,
+  buildContextualPrompt,
+  buildFarmerContext
 }

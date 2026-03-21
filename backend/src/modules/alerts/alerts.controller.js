@@ -3,11 +3,12 @@ const alertsService = require("./alerts.service");
 
 async function listAlerts(req, res, next) {
   try {
-    const { farmer_id, priority, status, limit } = req.query;
+    const { farmer_id, priority, status, alert_type, limit } = req.query;
     const data = await alertsService.listAlerts({
       farmer_id,
       priority,
       status,
+      alert_type,
       limit: Number(limit || 50)
     });
     res.json(successResponse(data, "Alerts retrieved"));
@@ -18,7 +19,7 @@ async function listAlerts(req, res, next) {
 
 async function generateForFarmer(req, res, next) {
   try {
-    const data = await alertsService.generateAlertsForFarmer(req.user, req.params.farmerId, req.ip);
+    const data = await alertsService.generateAlertsForFarmer(req.user, req.params.farmerId, req.body || {});
     res.json(successResponse(data, "Alerts generated"));
   } catch (err) {
     next(err);
