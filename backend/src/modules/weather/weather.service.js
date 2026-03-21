@@ -32,7 +32,7 @@ async function fetchWeatherForDistrict(district, lat, long, state) {
 
 async function updateWeather(location, payload, state = null) {
   const existing = await getWeather(location);
-  const validUntil = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6 hours cache
+  const validUntil = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour cache
 
   if (existing) {
     const { rows } = await pool.query(

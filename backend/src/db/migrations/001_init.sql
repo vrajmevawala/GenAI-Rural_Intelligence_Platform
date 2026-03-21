@@ -66,6 +66,7 @@ CREATE TABLE fvi_records (
   soil_crop_risk INTEGER,
   weather_risk INTEGER,
   disease_risk INTEGER,
+  breakdown JSONB,
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -76,12 +77,15 @@ CREATE TABLE fvi_records (
 CREATE TABLE weather_cache (
   id UUID PRIMARY KEY,
   location VARCHAR(50),
+  district VARCHAR(50),
+  state VARCHAR(50),
 
   temperature DECIMAL,
   rainfall DECIMAL,
   humidity DECIMAL,
 
-  fetched_at TIMESTAMP
+  fetched_at TIMESTAMP,
+  valid_until TIMESTAMP
 );
 
 -- =========================
@@ -95,6 +99,7 @@ CREATE TABLE alerts (
   message TEXT,
   reason TEXT,
   risk_level VARCHAR(20),
+  status VARCHAR(20),
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -167,6 +172,7 @@ CREATE TABLE institution_users (
   email VARCHAR(100),
   password TEXT,
   role VARCHAR(50),
+  preferred_language VARCHAR(20) DEFAULT 'en',
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
