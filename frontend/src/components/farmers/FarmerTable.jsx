@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronUp, ChevronDown, MoreVertical, Eye, Trash2, RefreshCw } from 'lucide-react'
+import { ChevronUp, ChevronDown, MoreVertical, Eye, Trash2, RefreshCw, Pencil } from 'lucide-react'
 import { motion } from 'framer-motion'
 import VulnerabilityScoreBadge from './VulnerabilityScoreBadge'
 import Avatar from '@/components/ui/Avatar'
@@ -84,7 +84,7 @@ export default function FarmerTable({ farmers = [], onDelete, onRecalculate, sor
                   <TranslatedText>{farmer.district}</TranslatedText>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">
-                  <TranslatedText>{farmer.primary_crop}</TranslatedText>
+                  <TranslatedText>{farmer.primary_crop || 'N/A'}</TranslatedText>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{farmer.land_area_acres || '—'}</td>
                 <td className="px-4 py-3">
@@ -120,6 +120,16 @@ export default function FarmerTable({ farmers = [], onDelete, onRecalculate, sor
                         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50"
                       >
                         <Eye className="w-3.5 h-3.5" /> View details
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/farmers/${farmer.id}?edit=1`)
+                          setMenuOpen(null)
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
                       <button
                         onClick={(e) => {

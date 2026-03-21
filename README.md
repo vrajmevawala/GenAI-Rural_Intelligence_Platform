@@ -1,129 +1,148 @@
-# 🌾 KhedutMitra: Rural Intelligence Platform (v1.2)
+# KhedutMitra Rural Intelligence Platform README v2
 
-KhedutMitra is a specialized rural intelligence platform designed to empower rural communities, institutions, and field agents with data-driven insights. By leveraging multi-dimensional data, KhedutMitra provides actionable intelligence for farmer vulnerability assessment, government scheme matching, and real-time risk alerting.
+KhedutMitra is a full-stack rural intelligence platform for farmer-centric risk monitoring, advisory delivery, scheme intelligence, and operational dashboards for institutions and field teams.
 
-## ✨ What's New in v1.2
-- **🌐 Triple-Language Support**: Full localization for English, Hindi, and Gujarati.
-- **🛰️ Live Weather Engine**: Real-time temperature and rainfall data via Open-Meteo integration.
-- **🧠 5-Dimension FVI**: Advanced weighted risk scoring including Soil, Water, Heat, Market, and Pest factors.
-- **⚡ Proactive Caching**: Optimized backend synchronization for instant data refreshes.
+## Version 2 Highlights
+- End-to-end farmer lifecycle: create, view, update, delete, recalculate score.
+- Extended farmer profiles: identity, location, agronomy, irrigation, household, loan, insurance, and PM-KISAN attributes.
+- Unified risk intelligence: weather + soil + financial + crop market factors in one vulnerability score.
+- Scheme and alert operations integrated into the same workflow.
+- WhatsApp capability for communication and conversation tracking.
+- Detailed module-level function documentation generated in a dedicated folder.
 
-## 🚀 Key Features
+## Core Features
+- Farmer Vulnerability Index (FVI)
+    - Weighted score computation using climate risk, soil suitability, social-financial risk, and market risk.
+    - Historical score tracking and high-risk farmer identification.
+    - District heatmap-ready aggregates.
+- Farmer Profile Management
+    - Full CRUD with robust mapping between API payloads and DB fields.
+    - Support for extended fields: aadhaar_last4, taluka, primary/secondary crop, irrigation type, family size, loan and insurance details, PM-KISAN, bank account.
+- Alerts Engine
+    - Alert generation, listing, status updates, and bulk generation flows.
+    - Dashboard activity integration for operational visibility.
+- Scheme Intelligence
+    - Farmer-scheme matching and status management.
+    - Scheme catalog with eligibility workflows.
+- Weather Intelligence
+    - District weather fetch with cache refresh and expiry handling.
+    - Weather usage in vulnerability calculations and UI cards.
+- Dashboard Analytics
+    - Summary KPIs, risk distribution, reason breakdown, upcoming expiries, and recent activity feed.
+- Multilingual Support
+    - Gujarati, Hindi, English support paths with translation module integration.
+- Auth and Security
+    - JWT auth with refresh flow.
+    - Role-aware access controls for superadmin, org_admin, field_officer.
+    - Validation and standardized API responses.
+- WhatsApp Integration
+    - Conversation/message support and assisted response flow for farmer engagement.
 
--   **📊 Farmer Vulnerability Index (FVI)**: A comprehensive 5-dimension scoring system with weighted risk assessment.
--   **🗣️ Multilingual Support**: Full localized interface for English, Hindi, and Gujarati, including dynamic content translation.
--   **🌤️ Live Weather Intelligence**: Real-time temperature and rainfall data integration with proactive backend caching.
--   **🤝 Smart Scheme Matching**: AI-driven engine that matches farmers with eligible government schemes and subsidies.
--   **🗺️ Vulnerability Heatmap**: Interactive geospatial visualization of risk distribution (powered by D3.js).
--   **🔔 Real-time Alerts**: Automated notifications for pest outbreaks, weather anomalies, and market fluctuations.
--   **👨‍🌾 Farmer Management**: 360-degree profiles including crop history, land details, and financial status.
+## What Makes This Project Unique
+- Domain-specific farmer intelligence model rather than generic CRM behavior.
+- Practical field-ready profile model that combines agronomy and finance in one entity.
+- Hybrid advisory approach combining weather cache, risk scoring, and alerting.
+- Operationally actionable dashboards designed for institutions, not just individual users.
+- Modular backend architecture where each domain is isolated into controller/routes/service layers.
 
-## 🛠️ Tech Stack
+## Architecture
+- Frontend: React + Vite, TanStack Query, Zustand, Tailwind, chart components.
+- Backend: Express (modular), PostgreSQL, JWT, Joi, utility layer for responses/logging.
+- External integrations: weather provider, translation service, WhatsApp channel.
 
-### 💻 Frontend
--   **⚛️ Core**: React 18 (Vite)
--   **📦 State Management**: Zustand (with Persist middleware)
--   **📡 Data Fetching**: TanStack Query (React Query) v5
--   **🎨 Styling**: Vanilla CSS & Tailwind CSS
--   **✨ Animations**: Framer Motion
--   **📈 Charts & Maps**: Recharts, D3.js, React Leaflet
-
-### 🏗️ Backend
--   **🟢 Core**: Node.js, Express.js
--   **🗄️ Database**: PostgreSQL
--   **🔑 Authentication**: JWT (JSON Web Tokens)
--   **🛡️ Validation**: Joi
--   **📝 Logging**: Morgan & custom audit logger
-
-### 🔌 External Integrations
--   **🌦️ Open-Meteo**: Powering high-resolution local weather data.
--   **🔤 Azure AI Translator**: Enabling real-time dynamic translation of farmer data.
-
-## 📐 System Design
-
-### 🛰️ Architecture Overview
-KhedutMitra follows a decoupled client-server architecture. The frontend communicates with a RESTful API backend, which interfaces with a PostgreSQL database.
-
-```mermaid
-graph TD
-    User((User/Agent)) -->|Interacts| Frontend[React Web App]
-    Frontend -->|JWT Auth Requests| API[Express API Gateway]
-    API -->|Auth| AuthService[Auth Service]
-    API -->|Vulnerability| FVIService[FVI Engine]
-    API -->|Matching| SchemeService[Scheme Engine]
-    API -->|Alerts| AlertService[Notification Engine]
-    API -->|Data| FarmerService[Farmer Management]
-    
-    AuthService --> DB[(PostgreSQL)]
-    FVIService --> DB
-    SchemeService --> DB
-    AlertService --> DB
-    FarmerService --> DB
-```
-
-### 🔄 Data Flow (FVI & Weather)
-1.  **📥 Input**: Field agent updates farmer data or a detail page is requested.
-2.  **🧠 Intelligence**: Backend triggers a weather fetch (Open-Meteo) if cache is missing/stale.
-3.  **⚙️ Engine**: FVI Service applies weighted risk formulas across 5 environmental and social dimensions.
-4.  **🔤 Translation**: UI components use `useLanguage` hook and Azure API to present data in the user's preferred language.
-5.  **📤 Output**: Real-time score breakdown and weather cards displayed on the dashboard and detail views.
-
-## 📁 Project Structure
-
+## Project Structure
 ```text
-GenAI-Rural_Intelligence_Platform/
-├── backend/                # Express.js Server
+Rural_Intelligence_Plateform/
+├── backend/
 │   ├── src/
-│   │   ├── config/         # DB and environment config
-│   │   ├── db/             # Migrations and Seed files
-│   │   ├── middleware/     # Auth, Error handling, Rate limiting
-│   │   ├── modules/        # Feature-based logic (Auth, Farmers, Alerts, etc.)
-│   │   └── utils/          # Helpers (API Response, Logger)
-│   └── server.js           # Entrance point
-├── frontend/               # React Application (Vite)
+│   │   ├── config/
+│   │   ├── db/
+│   │   │   ├── migrations/
+│   │   │   ├── migrate.js
+│   │   │   ├── seed.js
+│   │   │   └── setup.js
+│   │   ├── middleware/
+│   │   ├── modules/
+│   │   │   ├── alerts/
+│   │   │   ├── auth/
+│   │   │   ├── crops/
+│   │   │   ├── dashboard/
+│   │   │   ├── disease/
+│   │   │   ├── farmers/
+│   │   │   ├── institutions/
+│   │   │   ├── locations/
+│   │   │   ├── schemes/
+│   │   │   ├── translation/
+│   │   │   ├── users/
+│   │   │   ├── vulnerability/
+│   │   │   ├── weather/
+│   │   │   ├── whatsapp/
+│   │   │   └── function-docs/
+│   │   └── utils/
+│   └── server.js
+├── frontend/
 │   ├── src/
-│   │   ├── api/            # Axios instance and API calls
-│   │   ├── components/     # UI and Feature-based components
-│   │   ├── hooks/          # Custom hooks (Auth, Farmers, Queries)
-│   │   ├── pages/          # Main route components
-│   │   ├── store/          # Zustand state stores
-│   │   └── utils/          # Constants and Formatters
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── hooks/
+│   │   ├── pages/
+│   │   ├── router/
+│   │   ├── store/
+│   │   └── utils/
 │   └── vite.config.js
 └── README.md
 ```
 
-## ⚙️ Installation & Setup
+## Setup and Run
 
-### 📋 Prerequisites
--   Node.js >= 20.0.0
--   PostgreSQL Database
+### Prerequisites
+- Node.js 20+
+- PostgreSQL
 
-### 💻 Backend Setup
-1.  Navigate to `/backend`.
-2.  Install dependencies: `npm install`.
-3.  Configure `.env` file:
-    ```env
-    PORT=3000
-    DATABASE_URL=your_postgres_url
-    JWT_SECRET=your_jwt_secret
-    ```
-4.  Run migrations & seed: `npm run migrate` then `npm run seed`.
-5.  Start dev server: `npm run dev`.
+### Backend
+1. Go to backend folder.
+2. Install dependencies: npm install
+3. Configure environment variables.
+4. Initialize DB (schema + seed): npm run db:setup
+5. Start server: npm run dev
 
-### 🖥️ Frontend Setup
-1.  Navigate to `/frontend`.
-2.  Install dependencies: `npm install`.
-3.  Configure `.env` file:
-    ```env
-    VITE_API_BASE_URL=http://localhost:3000/api
-    ```
-4.  Start dev server: `npm run dev`.
+### Frontend
+1. Go to frontend folder.
+2. Install dependencies: npm install
+3. Configure VITE API URL.
+4. Start app: npm run dev
 
-## 🔒 Security
--   🛡️ JWT for secure stateless authentication.
--   🌐 CORS enabled for specific origins.
--   🚦 Rate limiting on API endpoints to prevent abuse.
--   🔐 RBAC (Role-Based Access Control) for Institution Users and Admins.
+## Database and Seed Notes
+- Migrations include base schema, WhatsApp support, farmer code sequence, and extended farmer profile fields.
+- Seed script populates farmers with both core and extended profile data so edit forms display complete values for seeded records.
 
----
-© 2026 KhedutMitra Rural Intelligence Platform. All rights reserved. 🌾
+## Function Documentation (Per Function)
+- Generated folder: backend/src/modules/function-docs
+- Index file: backend/src/modules/function-docs/README.md
+- One markdown file per named function across module controller/service/schema files.
+
+## API Domains
+- /auth
+- /farmers
+- /alerts
+- /schemes
+- /dashboard
+- /vulnerability
+- /users
+- /institutions
+- /locations
+- /translation
+- /whatsapp
+
+## Security and Reliability
+- JWT + refresh session flow.
+- Input validation in request schemas.
+- Centralized error handling and response shape.
+- Weather cache refresh strategy to avoid stale advisory context.
+
+## Maintenance Notes
+- To regenerate per-function docs, rerun the documentation generation workflow used for backend modules.
+- Keep migrations forward-only and idempotent where possible.
+
+## License
+Internal project. Update this section with your organization license policy if needed.

@@ -12,13 +12,6 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
   const navigate = useNavigate()
   const { t } = useLanguage()
 
-  const displayItems = data.length > 0 ? data : [
-    { id: 1, farmer_name: 'Ramesh Patel', farmer_id: 1, type: 'insurance', expiry_date: new Date(Date.now() + 5 * 86400000).toISOString(), district: 'Banaskantha' },
-    { id: 2, farmer_name: 'Suresh Bhatt', farmer_id: 2, type: 'loan', expiry_date: new Date(Date.now() + 3 * 86400000).toISOString(), district: 'Kutch' },
-    { id: 3, farmer_name: 'Geeta Devi', farmer_id: 3, type: 'insurance', expiry_date: new Date(Date.now() - 2 * 86400000).toISOString(), district: 'Banaskantha' },
-    { id: 4, farmer_name: 'Jayaben Solanki', farmer_id: 4, type: 'loan', expiry_date: new Date(Date.now() + 10 * 86400000).toISOString(), district: 'Kutch' },
-  ]
-
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -35,12 +28,17 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
     )
   }
 
+  if (!data.length) {
+    return <p className="text-xs text-gray-400 px-2 py-3">No upcoming expiries found.</p>
+  }
+
   return (
     <div className="space-y-0.5">
-      {displayItems.map((item, idx) => {
+      {data.map((item, idx) => {
         const remaining = formatDaysRemaining(item.expiry_date)
         const isOverdue = remaining.startsWith('Overdue')
         const isUrgent = remaining === 'Due today' || remaining === 'Due tomorrow' || isOverdue
+        const typeLabel = item.type === 'loan' ? 'Loan' : item.type === 'insurance' ? 'Insurance' : item.type
 
         return (
           <motion.div
@@ -67,7 +65,7 @@ export default function ExpiryWarningList({ data = [], isLoading = false }) {
                 <TranslatedText>{item.farmer_name}</TranslatedText>
               </p>
               <p className="text-[10px] text-gray-400 capitalize">
-                {t(`farmers.details.fields.${item.type}`)} · <TranslatedText>{item.district}</TranslatedText>
+                {typeLabel} · <TranslatedText>{item.district}</TranslatedText>
               </p>
             </div>
             <span

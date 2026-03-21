@@ -10,7 +10,7 @@ const matchIdParamSchema = Joi.object({
 
 const updateStatusSchema = Joi.object({
   application_status: Joi.string()
-    .valid("not_started", "in_progress", "submitted", "approved", "rejected")
+    .valid("eligible", "applied", "approved", "rejected", "disbursed")
     .required()
 });
 

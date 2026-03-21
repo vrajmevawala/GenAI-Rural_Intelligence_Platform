@@ -13,9 +13,8 @@ async function summary(req, res, next) {
 
 async function activityFeed(req, res, next) {
   try {
-    // Audit logs are currently being transitioned from DB to console/graceful skip
-    // Returning empty array for now to prevent crashes
-    res.json(successResponse([], "Activity feed"));
+    const data = await dashboardService.getRecentActivity(10);
+    res.json(successResponse(data, "Activity feed"));
   } catch (err) {
     next(err);
   }

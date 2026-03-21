@@ -30,7 +30,8 @@ async function getMatches(req, res, next) {
 
 async function updateStatus(req, res, next) {
   try {
-    const data = await schemesService.updateMatchStatus(req.params.matchId, req.body.status);
+    const nextStatus = req.body.application_status || req.body.status;
+    const data = await schemesService.updateMatchStatus(req.params.matchId, nextStatus);
     res.json(successResponse(data, "Application status updated"));
   } catch (err) {
     next(err);

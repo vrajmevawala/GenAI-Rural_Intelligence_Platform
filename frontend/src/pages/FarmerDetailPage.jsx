@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, MapPin, Phone, RefreshCw,
-  Bell, Wheat, Droplets, Wallet, Shield, Users, MessageCircle,
+  Bell, Wheat, Droplets, Wallet, Shield, Users, MessageCircle, Pencil, Trash2,
 } from 'lucide-react'
-import { useFarmer, useScoreHistory, useRecalculateScore } from '@/hooks/useFarmers'
+import { useFarmer, useScoreHistory, useRecalculateScore, useUpdateFarmer, useDeleteFarmer } from '@/hooks/useFarmers'
 import { useSchemeMatches, useMatchSchemes } from '@/hooks/useSchemes'
 import { useAlerts, useGenerateAlert } from '@/hooks/useAlerts'
 import VulnerabilityGauge from '@/components/charts/VulnerabilityGauge'
@@ -27,12 +27,18 @@ import useLanguage from '@/hooks/useLanguage'
 import TranslatedText from '@/components/common/TranslatedText'
 import WeatherCard from '@/components/weather/WeatherCard'
 import { useSendWhatsAppAlert } from '@/hooks/useWhatsApp'
+import useAuthStore from '@/store/authStore'
+import Modal from '@/components/ui/Modal'
+import FarmerForm from '@/components/farmers/FarmerForm'
 
 export default function FarmerDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { t } = useLanguage()
   const [activeTab, setActiveTab] = useState('overview')
+  const [showEditModal, setShowEditModal] = useState(false)
+  const { user } = useAuthStore()
 
   const tabs = useMemo(() => [
     { key: 'overview', label: t('farmers.details.tabs.overview') },
@@ -50,12 +56,24 @@ export default function FarmerDetailPage() {
   const matchSchemes = useMatchSchemes()
   const generateAlert = useGenerateAlert()
   const sendWhatsAppAlert = useSendWhatsAppAlert()
+  const updateFarmer = useUpdateFarmer()
+  const deleteFarmer = useDeleteFarmer()
   const updateMatchStatus = useUpdateMatchStatus()
   const updateAlertStatus = useUpdateAlertStatus()
+  const canManageFarmer = ['superadmin', 'org_admin'].includes(user?.role)
 
   const alerts = Array.isArray(alertsData) ? alertsData : alertsData?.alerts || []
   const matches = Array.isArray(schemeMatches) ? schemeMatches : schemeMatches?.matches || []
   const history = Array.isArray(scoreHistory) ? scoreHistory : scoreHistory?.history || []
+
+  useEffect(() => {
+    if (searchParams.get('edit') === '1') {
+      setShowEditModal(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('edit')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   if (isLoading) {
     return (
@@ -86,6 +104,30 @@ export default function FarmerDetailPage() {
   const score = farmer.vulnerability_score ?? 0
   const label = farmer.vulnerability_label || getScoreLabel(score)
 
+  const editDefaultValues = {
+    name: farmer.name || '',
+    phone: farmer.phone || '',
+    aadhaar_last4: farmer.aadhaar_last4 || '',
+    preferred_language: farmer.language || farmer.preferred_language || 'gu',
+    district: farmer.district || '',
+    taluka: farmer.taluka || '',
+    village: farmer.village || '',
+    land_area_acres: farmer.land_area_acres || '',
+    primary_crop: farmer.primary_crop || '',
+    secondary_crop: farmer.secondary_crop || '',
+    soil_type: farmer.soil_type || '',
+    irrigation_type: farmer.irrigation_type || '',
+    annual_income_inr: farmer.annual_income_inr || '',
+    family_size: farmer.family_size || '',
+    loan_amount_inr: farmer.loan_amount_inr || '',
+    loan_type: farmer.loan_type || '',
+    loan_due_date: farmer.loan_due_date ? String(farmer.loan_due_date).slice(0, 10) : '',
+    has_crop_insurance: Boolean(farmer.has_crop_insurance),
+    insurance_expiry_date: farmer.insurance_expiry_date ? String(farmer.insurance_expiry_date).slice(0, 10) : '',
+    pm_kisan_enrolled: Boolean(farmer.pm_kisan_enrolled),
+    bank_account_number: farmer.bank_account_number || '',
+  }
+
   return (
     <div className="space-y-6">
       {/* Back + Actions */}
@@ -98,6 +140,33 @@ export default function FarmerDetailPage() {
           {t('common.cancel')}
         </button>
         <div className="flex gap-2">
+          {canManageFarmer && (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Pencil}
+                onClick={() => setShowEditModal(true)}
+              >
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                icon={Trash2}
+                loading={deleteFarmer.isPending}
+                onClick={() => {
+                  const ok = window.confirm('Delete this farmer permanently?')
+                  if (!ok) return
+                  deleteFarmer.mutate(id, {
+                    onSuccess: () => navigate('/farmers')
+                  })
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          )}
           <Button
             size="sm"
             variant="secondary"
@@ -342,6 +411,34 @@ export default function FarmerDetailPage() {
           </Card>
         )}
       </motion.div>
+
+      <Modal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit farmer"
+        description="Update farmer details"
+        size="lg"
+      >
+        <FarmerForm
+          defaultValues={editDefaultValues}
+          loading={updateFarmer.isPending}
+          onSubmit={(data) => {
+            const payload = {
+              ...data,
+              name: data.name?.trim(),
+              phone: data.phone?.trim(),
+              district: data.district?.trim(),
+              taluka: data.taluka?.trim(),
+              village: data.village?.trim(),
+            }
+
+            updateFarmer.mutate(
+              { id, data: payload },
+              { onSuccess: () => setShowEditModal(false) }
+            )
+          }}
+        />
+      </Modal>
     </div>
   )
 }

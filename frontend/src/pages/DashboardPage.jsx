@@ -72,8 +72,8 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-2" padding={false}>
-          <div className="p-5 pb-0">
+        <Card className="lg:col-span-2 min-h-[420px]" padding={false}>
+          <div className="p-4 pb-0">
             <CardTitle>{t('dashboard.alert_breakdown_title')}</CardTitle>
             <CardDescription>{t('dashboard.alert_breakdown_desc')}</CardDescription>
           </div>
@@ -84,8 +84,8 @@ export default function DashboardPage() {
       </div>
 
       {/* Lists row */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <Card className="lg:col-span-5" padding={false}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="min-h-[320px]" padding={false}>
           <div className="p-5 pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -101,11 +101,11 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="px-3 pb-3">
-            <HighRiskFarmerList />
+            <HighRiskFarmerList data={summary?.highRiskFarmers || []} />
           </div>
         </Card>
 
-        <Card className="lg:col-span-4" padding={false}>
+        <Card className="min-h-[320px]" padding={false}>
           <div className="p-5 pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -115,11 +115,11 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="px-3 pb-3">
-            <ExpiryWarningList />
+            <ExpiryWarningList data={summary?.upcomingExpiries || []} />
           </div>
         </Card>
 
-        <Card className="lg:col-span-3" padding={false}>
+        <Card className="min-h-[320px]" padding={false}>
           <div className="p-5 pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -129,7 +129,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="px-3 pb-3">
-            <ActivityFeed />
+            <ActivityFeed data={summary?.recentActivity || []} />
           </div>
         </Card>
       </div>

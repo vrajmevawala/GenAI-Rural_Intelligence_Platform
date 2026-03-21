@@ -48,13 +48,19 @@ INSERT INTO crops (id, name, water_requirement, heat_tolerance, risk_level, idea
 ('40000000-0000-0000-0000-000000000005', 'Maize', 'medium', 'medium', 'medium', 'loam', 'kharif'),
 ('40000000-0000-0000-0000-000000000006', 'Castor', 'low', 'high', 'medium', 'black_cotton', 'kharif');
 
-INSERT INTO farmers (id, name, phone, password, language, district, village, latitude, longitude, soil_type, land_size, annual_income) VALUES
-('50000000-0000-0000-0000-000000000001', 'Ramesh Patel', '+919900000001', NULL, 'gu', 'Anand', 'Karamsad', 22.560100, 72.930100, 'loam', 2.50, 180000),
-('50000000-0000-0000-0000-000000000002', 'Suresh Solanki', '+919900000002', NULL, 'gu', 'Anand', 'Mogri', 22.540300, 72.900200, 'black_cotton', 3.20, 210000),
-('50000000-0000-0000-0000-000000000003', 'Mahesh Parmar', '+919900000003', NULL, 'gu', 'Ahmedabad', 'Sanand', 23.000200, 72.400400, 'sandy', 1.70, 125000),
-('50000000-0000-0000-0000-000000000004', 'Kalpesh Rabari', '+919900000004', NULL, 'hi', 'Vadodara', 'Padra', 22.220300, 73.080400, 'loam', 4.10, 260000),
-('50000000-0000-0000-0000-000000000005', 'Harshad Chauhan', '+919900000005', NULL, 'gu', 'Rajkot', 'Lodhika', 22.240500, 70.760400, 'black_cotton', 2.90, 195000),
-('50000000-0000-0000-0000-000000000006', 'Bhavesh Thakor', '+919900000006', NULL, 'en', 'Anand', 'Vallabh Vidyanagar', 22.550100, 72.920100, 'sandy', 1.40, 98000);
+INSERT INTO farmers (
+	id, name, phone, password, language, district, taluka, village,
+	latitude, longitude, aadhaar_last4, soil_type, land_size, annual_income,
+	primary_crop, secondary_crop, irrigation_type, family_size,
+	loan_amount_inr, loan_type, loan_due_date,
+	has_crop_insurance, insurance_expiry_date, pm_kisan_enrolled, bank_account_number
+) VALUES
+('50000000-0000-0000-0000-000000000001', 'Ramesh Patel', '+919900000001', NULL, 'gu', 'Anand', 'Anand', 'Karamsad', 22.560100, 72.930100, '1201', 'loam', 2.50, 180000, 'Wheat', 'Groundnut', 'Canal', 5, 50000, 'KCC', '2026-12-15', true, '2027-06-30', true, '1111222233334444'),
+('50000000-0000-0000-0000-000000000002', 'Suresh Solanki', '+919900000002', NULL, 'gu', 'Anand', 'Anand', 'Mogri', 22.540300, 72.900200, '2388', 'black_cotton', 3.20, 210000, 'Cotton', 'Castor', 'Drip', 6, 95000, 'Term loan', '2027-01-10', true, '2026-11-25', true, '2222333344445555'),
+('50000000-0000-0000-0000-000000000003', 'Mahesh Parmar', '+919900000003', NULL, 'gu', 'Ahmedabad', 'Sanand', 'Sanand', 23.000200, 72.400400, '4410', 'sandy', 1.70, 125000, 'Bajra', 'Groundnut', 'Rainfed', 4, 25000, 'Crop loan', '2026-09-20', false, NULL, false, '3333444455556666'),
+('50000000-0000-0000-0000-000000000004', 'Kalpesh Rabari', '+919900000004', NULL, 'hi', 'Vadodara', 'Padra', 'Padra', 22.220300, 73.080400, '5572', 'loam', 4.10, 260000, 'Maize', 'Wheat', 'Tube well', 7, 120000, 'KCC', '2027-03-31', true, '2027-10-05', true, '4444555566667777'),
+('50000000-0000-0000-0000-000000000005', 'Harshad Chauhan', '+919900000005', NULL, 'gu', 'Rajkot', 'Lodhika', 'Lodhika', 22.240500, 70.760400, '6699', 'black_cotton', 2.90, 195000, 'Castor', 'Cotton', 'Sprinkler', 5, 70000, 'Crop loan', '2026-08-30', false, NULL, true, '5555666677778888'),
+('50000000-0000-0000-0000-000000000006', 'Bhavesh Thakor', '+919900000006', NULL, 'en', 'Anand', 'Anand', 'Vallabh Vidyanagar', 22.550100, 72.920100, '7804', 'sandy', 1.40, 98000, 'Wheat', NULL, 'Open well', 3, 15000, 'None', NULL, false, NULL, false, '6666777788889999');
 
 INSERT INTO farmer_crops (id, farmer_id, crop_id, area_allocated, season) VALUES
 ('60000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 1.20, 'rabi'),

@@ -12,6 +12,7 @@ import { formatCurrency } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 
 export default function SchemesPage() {
+  const [search, setSearch] = useState('')
   const { data, isLoading } = useSchemes()
   const bulkMatch = useBulkMatchSchemes()
   const { user } = useAuthStore()
@@ -28,6 +29,18 @@ export default function SchemesPage() {
   ]
 
   const displaySchemes = schemes.length > 0 ? schemes : defaultSchemes
+  const filteredSchemes = displaySchemes.filter((scheme) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    const hay = [
+      scheme.scheme_name || scheme.name,
+      scheme.ministry,
+      scheme.eligible_criteria,
+      scheme.eligibility_criteria,
+      scheme.description,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return hay.includes(q)
+  })
 
   return (
     <div className="space-y-6">
@@ -43,13 +56,23 @@ export default function SchemesPage() {
         )}
       </div>
 
+      <div className="relative max-w-md">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search schemes, ministry, eligibility..."
+          className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F4C35]/20 focus:border-[#0F4C35]"
+        />
+      </div>
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {displaySchemes.map((scheme, i) => (
+          {filteredSchemes.map((scheme, i) => (
             <motion.div key={scheme.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}>
               <Card className="h-full flex flex-col">
@@ -71,7 +94,7 @@ export default function SchemesPage() {
                   </div>
                 )}
                 <p className="text-[10px] text-gray-400 border-t border-gray-50 pt-2">
-                  Eligibility: {scheme.eligible_criteria}
+                  Eligibility: {scheme.eligibility_criteria || scheme.eligible_criteria || 'N/A'}
                 </p>
               </Card>
             </motion.div>

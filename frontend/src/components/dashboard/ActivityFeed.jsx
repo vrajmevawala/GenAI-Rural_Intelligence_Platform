@@ -24,10 +24,12 @@ const typeColors = {
   insurance_expiry: 'bg-orange-50 text-orange-600',
 }
 
-export default function ActivityFeed() {
-  const { data, isLoading } = useActivityFeed()
+export default function ActivityFeed({ data: providedData, isLoading: providedLoading = false }) {
+  const { data: hookData, isLoading: hookLoading } = useActivityFeed()
 
-  const activities = Array.isArray(data) ? data : data?.activities || []
+  const sourceData = providedData ?? hookData
+  const isLoading = providedData ? providedLoading : hookLoading
+  const activities = Array.isArray(sourceData) ? sourceData : sourceData?.activities || []
 
   if (isLoading) {
     return (
@@ -45,17 +47,13 @@ export default function ActivityFeed() {
     )
   }
 
-  const displayItems = activities.length > 0 ? activities : [
-    { type: 'alert_sent', message: 'Weather alert sent to 12 farmers in Kutch', created_at: new Date(Date.now() - 3600000).toISOString() },
-    { type: 'farmer_added', message: 'New farmer Ramesh Patel registered', created_at: new Date(Date.now() - 7200000).toISOString() },
-    { type: 'score_updated', message: 'Vulnerability scores recalculated for Anand', created_at: new Date(Date.now() - 10800000).toISOString() },
-    { type: 'high_risk', message: '3 farmers moved to critical status', created_at: new Date(Date.now() - 14400000).toISOString() },
-    { type: 'scheme_matched', message: 'PM-Kisan matched for 8 farmers', created_at: new Date(Date.now() - 18000000).toISOString() },
-  ]
+  if (activities.length === 0) {
+    return <p className="text-xs text-gray-400 px-2 py-3">No recent activity found.</p>
+  }
 
   return (
     <div className="space-y-1">
-      {displayItems.map((activity, idx) => {
+      {activities.map((activity, idx) => {
         const Icon = typeIcons[activity.type] || Bell
         const color = typeColors[activity.type] || 'bg-gray-50 text-gray-600'
 

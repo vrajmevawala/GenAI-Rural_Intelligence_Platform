@@ -19,17 +19,9 @@ const Input = forwardRef(
     const hasValue = props.value !== undefined ? !!props.value : !!internalValue
 
     return (
-      <div className={cn('relative', containerClassName)}>
+      <div className={cn('flex flex-col', containerClassName)}>
         {label && (
-          <label
-            className={cn(
-              'absolute left-3 transition-all duration-200 pointer-events-none z-10',
-              Icon && 'left-10',
-              focused || hasValue || props.placeholder
-                ? 'top-1.5 text-[10px] font-medium text-gray-500'
-                : 'top-1/2 -translate-y-1/2 text-sm text-gray-400'
-            )}
-          >
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">
             {label}
           </label>
         )}
@@ -58,12 +50,11 @@ const Input = forwardRef(
               props.onChange?.(e)
             }}
             className={cn(
-              'w-full rounded-lg border bg-white px-3 text-sm text-gray-900',
-              'transition-all duration-150 outline-none',
+              'w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-gray-900',
+              'transition-all duration-150 outline-none cursor-text',
               'placeholder:text-gray-400',
               'focus:ring-2 focus:ring-[#0F4C35]/20 focus:border-[#0F4C35]',
               'disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed',
-              label ? 'pt-5 pb-2' : 'py-2.5',
               Icon ? 'pl-10' : 'pl-3',
               error
                 ? 'border-red-300 focus:ring-red-200 focus:border-red-500 animate-shake'

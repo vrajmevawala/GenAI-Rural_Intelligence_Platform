@@ -11,6 +11,7 @@ import FarmerTable from '@/components/farmers/FarmerTable'
 import FarmerFilters from '@/components/farmers/FarmerFilters'
 import FarmerForm from '@/components/farmers/FarmerForm'
 import { useCreateFarmer } from '@/hooks/useFarmers'
+import { exportFarmers } from '@/api/farmers.api'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import EmptyState from '@/components/ui/EmptyState'
@@ -81,6 +82,26 @@ export default function FarmersPage() {
     setFilters({ search: '', district: '', vulnerability_label: '', primary_crop: '' })
   }
 
+  const handleExport = async () => {
+    try {
+      const params = { ...queryParams }
+      if (!params.search) delete params.search
+      const response = await exportFarmers(params)
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `farmers_export_${new Date().toISOString().slice(0, 10)}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Export failed', err)
+    }
+  }
+
   return (
     <div className="space-y-4 h-full flex flex-col">
       {/* Header */}
@@ -112,7 +133,7 @@ export default function FarmersPage() {
               <List className="w-4 h-4" />
             </button>
           </div>
-          <Button variant="secondary" icon={Download} size="sm">
+          <Button variant="secondary" icon={Download} size="sm" onClick={handleExport}>
             {t('common.export')}
           </Button>
           <Button icon={Plus} onClick={() => setShowForm(true)}>

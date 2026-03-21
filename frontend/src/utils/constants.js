@@ -19,7 +19,7 @@ export const ALERT_TYPES = [
   'market_price',
 ]
 
-export const ALERT_STATUSES = ['pending', 'sent', 'delivered', 'failed']
+export const ALERT_STATUSES = ['pending', 'sent']
 
 export const LANGUAGES = [
   { value: 'gu', label: 'ગુજરાતી (Gujarati)' },

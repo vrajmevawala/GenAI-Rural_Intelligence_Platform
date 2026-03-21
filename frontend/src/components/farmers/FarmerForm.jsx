@@ -126,11 +126,11 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
         >
           {step === 0 && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Full name" error={errors.name?.message} {...register('name')} />
                 <Input label="Phone number" error={errors.phone?.message} {...register('phone')} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Aadhaar (last 4)" maxLength={4} error={errors.aadhaar_last4?.message} {...register('aadhaar_last4')} />
                 <Select
                   label="Language"
@@ -146,7 +146,7 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
                 options={GUJARAT_DISTRICTS.map((d) => ({ value: d, label: d }))}
                 {...register('district')}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Taluka" error={errors.taluka?.message} {...register('taluka')} />
                 <Input label="Village" error={errors.village?.message} {...register('village')} />
               </div>
@@ -155,15 +155,15 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
 
           {step === 1 && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Land area (acres)" type="number" {...register('land_area_acres')} />
                 <Input label="Family size" type="number" {...register('family_size')} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select label="Primary crop" placeholder="Select crop" options={CROP_TYPES.map((c) => ({ value: c, label: c }))} {...register('primary_crop')} />
                 <Select label="Secondary crop" placeholder="Select crop" options={CROP_TYPES.map((c) => ({ value: c, label: c }))} {...register('secondary_crop')} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select label="Soil type" placeholder="Select" options={SOIL_TYPES.map((s) => ({ value: s, label: s }))} {...register('soil_type')} />
                 <Select label="Irrigation type" placeholder="Select" options={IRRIGATION_TYPES.map((t) => ({ value: t, label: t }))} {...register('irrigation_type')} />
               </div>
@@ -173,13 +173,13 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
 
           {step === 2 && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Loan amount (INR)" type="number" {...register('loan_amount_inr')} />
                 <Select label="Loan type" placeholder="Select" options={LOAN_TYPES.map((l) => ({ value: l, label: l }))} {...register('loan_type')} />
               </div>
               <Input label="Loan due date" type="date" {...register('loan_due_date')} />
 
-              <div className="flex items-center gap-6 py-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 py-2">
                 <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                   <input type="checkbox" {...register('has_crop_insurance')} className="w-4 h-4 rounded border-gray-300 text-[#0F4C35] focus:ring-[#0F4C35]" />
                   Has crop insurance

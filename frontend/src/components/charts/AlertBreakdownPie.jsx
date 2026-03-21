@@ -57,7 +57,7 @@ export default function AlertBreakdownPie({ data = [] }) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height={320}>
       <PieChart>
         <Pie
           data={chartData}
@@ -79,8 +79,11 @@ export default function AlertBreakdownPie({ data = [] }) {
           height={50}
           iconType="circle"
           iconSize={8}
+          wrapperStyle={{ paddingTop: '8px' }}
           formatter={(value) => (
-            <span className="text-xs text-gray-600 ml-1">{value}</span>
+            <span className="text-xs text-gray-600 ml-1 inline-block max-w-[110px] truncate align-middle" title={value}>
+              {value}
+            </span>
           )}
         />
       </PieChart>

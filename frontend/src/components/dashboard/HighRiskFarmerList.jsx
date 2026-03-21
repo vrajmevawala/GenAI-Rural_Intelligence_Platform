@@ -1,17 +1,14 @@
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
-import { useHighRisk } from '@/hooks/useVulnerability'
 import VulnerabilityScoreBadge from '@/components/farmers/VulnerabilityScoreBadge'
 import Avatar from '@/components/ui/Avatar'
 import Skeleton from '@/components/ui/Skeleton'
 import TranslatedText from '@/components/common/TranslatedText'
 
-export default function HighRiskFarmerList() {
-  const { data, isLoading } = useHighRisk({ limit: 8 })
+export default function HighRiskFarmerList({ data = [], isLoading = false }) {
   const navigate = useNavigate()
 
-  const farmers = Array.isArray(data) ? data : data?.farmers || []
+  const farmers = Array.isArray(data) ? data : data?.rows || data?.farmers || []
 
   if (isLoading) {
     return (
@@ -30,17 +27,13 @@ export default function HighRiskFarmerList() {
     )
   }
 
-  const displayFarmers = farmers.length > 0 ? farmers : [
-    { id: 1, name: 'Ramesh Patel', village: 'Vadgam', district: 'Banaskantha', vulnerability_score: 89, vulnerability_label: 'critical' },
-    { id: 2, name: 'Suresh Bhatt', village: 'Rapar', district: 'Kutch', vulnerability_score: 85, vulnerability_label: 'critical' },
-    { id: 3, name: 'Geeta Devi', village: 'Dhanera', district: 'Banaskantha', vulnerability_score: 82, vulnerability_label: 'critical' },
-    { id: 4, name: 'Mukesh Shah', village: 'Sanand', district: 'Ahmedabad', vulnerability_score: 79, vulnerability_label: 'critical' },
-    { id: 5, name: 'Jayaben Solanki', village: 'Anjar', district: 'Kutch', vulnerability_score: 76, vulnerability_label: 'critical' },
-  ]
+  if (farmers.length === 0) {
+    return <p className="text-xs text-gray-400 px-2 py-3">No high-risk farmers found.</p>
+  }
 
   return (
     <div className="space-y-0.5">
-      {displayFarmers.map((farmer, idx) => (
+      {farmers.map((farmer, idx) => (
         <motion.div
           key={farmer.id}
           initial={{ opacity: 0 }}
@@ -64,7 +57,7 @@ export default function HighRiskFarmerList() {
           </div>
           <VulnerabilityScoreBadge
             score={farmer.vulnerability_score}
-            label={farmer.vulnerability_label}
+            label={farmer.vulnerability_label || (farmer.vulnerability_score > 80 ? 'critical' : 'high')}
             size="sm"
           />
         </motion.div>
