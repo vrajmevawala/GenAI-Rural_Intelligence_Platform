@@ -27,26 +27,9 @@ async function createAlert(payload) {
 }
 
 async function generateAlertsForFarmer(user, farmerId, ip) {
-  // Simple logic: create a dummy alert for the farmer
-  const farmerRes = await pool.query("SELECT * FROM farmers WHERE id = $1", [farmerId]);
-  if (farmerRes.rowCount === 0) throw new AppError("Farmer not found", 404);
-  
-  const id = uuidv4();
-  const sql = `
-    INSERT INTO alerts (id, farmer_id, message, reason, risk_level, status)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING *
-  `;
-  const values = [
-    id, 
-    farmerId, 
-    "Potential moisture stress detected. Consider irrigation.", 
-    "High temperature + No rain", 
-    "MEDIUM", 
-    "pending"
-  ];
-  const { rows } = await pool.query(sql, values);
-  return rows[0];
+  const vulnerabilityService = require("../vulnerability/vulnerability.service");
+  // This will trigger the LLM advice generation and create an alert record automatically
+  return await vulnerabilityService.recalculateFarmerScore(farmerId, user, 'manual-trigger');
 }
 
 async function updateAlertStatus(user, id, status, ip) {
