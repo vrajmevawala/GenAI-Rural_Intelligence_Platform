@@ -2,20 +2,18 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 
 const COLORS = {
   weather: '#3B82F6',
-  loan_repayment: '#EF4444',
-  insurance_expiry: '#F59E0B',
-  scheme_eligibility: '#10B981',
   crop_advisory: '#8B5CF6',
-  market_price: '#EC4899',
+  financial: '#10B981',
 }
 
 const LABELS = {
-  weather: 'Weather',
-  loan_repayment: 'Loan repayment',
-  insurance_expiry: 'Insurance expiry',
-  scheme_eligibility: 'Scheme eligibility',
-  crop_advisory: 'Crop advisory',
-  market_price: 'Market price',
+  weather: '🌦️ Weather Alerts',
+  crop_advisory: '🌾 Crop Advisory',
+  financial: '💰 Financial & Schemes',
+  loan_repayment: 'Financial & Schemes',
+  insurance_expiry: 'Financial & Schemes',
+  scheme_eligibility: 'Financial & Schemes',
+  market_price: 'Financial & Schemes',
 }
 
 function CustomTooltip({ active, payload }) {
@@ -37,24 +35,36 @@ function CustomTooltip({ active, payload }) {
 export default function AlertBreakdownPie({ data = [] }) {
   const total = data.reduce((sum, d) => sum + (d.count || d.value || 0), 0)
 
-  const chartData = data.map((d) => ({
-    name: LABELS[d.type] || d.type || d.name,
-    value: d.count || d.value || 0,
-    fill: COLORS[d.type] || d.color || '#94A3B8',
-    total,
-  }))
+  // Group alerts into 3 main categories
+  const grouped = data.reduce((acc, d) => {
+    const type = d.type?.toLowerCase() || ''
+    let category = 'financial'
+    
+    if (type === 'weather') category = 'weather'
+    else if (type === 'crop_advisory') category = 'crop_advisory'
+    else if (['loan_repayment', 'insurance_expiry', 'scheme_eligibility', 'market_price'].includes(type)) category = 'financial'
+    
+    const existing = acc.find(item => item.type === category)
+    if (existing) {
+      existing.count += d.count || d.value || 0
+    } else {
+      acc.push({ type: category, count: d.count || d.value || 0 })
+    }
+    return acc
+  }, [])
 
-  if (!chartData.length) {
-    const defaultData = [
-      { name: 'Weather', value: 28, fill: COLORS.weather, total: 100 },
-      { name: 'Loan repayment', value: 24, fill: COLORS.loan_repayment, total: 100 },
-      { name: 'Insurance expiry', value: 18, fill: COLORS.insurance_expiry, total: 100 },
-      { name: 'Scheme eligibility', value: 15, fill: COLORS.scheme_eligibility, total: 100 },
-      { name: 'Crop advisory', value: 10, fill: COLORS.crop_advisory, total: 100 },
-      { name: 'Market price', value: 5, fill: COLORS.market_price, total: 100 },
-    ]
-    chartData.push(...defaultData)
-  }
+  const chartData = grouped.length 
+    ? grouped.map((d) => ({
+        name: LABELS[d.type],
+        value: d.count,
+        fill: COLORS[d.type],
+        total,
+      }))
+    : [
+        { name: '🌦️ Weather Alerts', value: 28, fill: COLORS.weather, total: 100 },
+        { name: '🌾 Crop Advisory', value: 35, fill: COLORS.crop_advisory, total: 100 },
+        { name: '💰 Financial & Schemes', value: 37, fill: COLORS.financial, total: 100 },
+      ]
 
   return (
     <ResponsiveContainer width="100%" height={320}>

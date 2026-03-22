@@ -6,7 +6,6 @@ const RISK_COLORS = {
   low: '#059669',
   medium: '#D97706',
   high: '#EA580C',
-  critical: '#DC2626',
 }
 
 function CustomTooltip({ active, payload, label }) {
@@ -21,12 +20,11 @@ function CustomTooltip({ active, payload, label }) {
 
 export default function FarmerDistributionBar({ data = [] }) {
   const chartData = data.length
-    ? data
+    ? data.filter(d => ['low', 'medium', 'high'].includes(d.label?.toLowerCase() || d.name?.toLowerCase()))
     : [
         { label: 'Low', count: 320, color: RISK_COLORS.low },
         { label: 'Medium', count: 180, color: RISK_COLORS.medium },
         { label: 'High', count: 85, color: RISK_COLORS.high },
-        { label: 'Critical', count: 42, color: RISK_COLORS.critical },
       ]
 
   const formatted = chartData.map((d) => ({

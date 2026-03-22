@@ -48,7 +48,13 @@ export function useUpdateFarmer() {
       toast.success('Farmer updated successfully')
     },
     onError: (err) => {
-      toast.error(err.response?.data?.message || 'Failed to update farmer')
+      console.error('Update farmer error:', err)
+      const errorMsg = 
+        err.response?.data?.message ||
+        err.response?.data?.error?.message ||
+        err.message ||
+        'Failed to update farmer'
+      toast.error(errorMsg)
     },
   })
 }

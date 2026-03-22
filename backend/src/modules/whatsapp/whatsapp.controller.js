@@ -184,10 +184,11 @@ async function testTwilio(req, res, next) {
     }
 
     const testMessage = `Test message from KhedutMitra at ${new Date().toLocaleString()}`
-    const sid = await whatsappService.sendMessage(testPhone, testMessage)
+    const normalizedPhone = whatsappService.normalizePhoneNumber(testPhone)
+    const sid = await whatsappService.sendMessage(normalizedPhone, testMessage)
 
     res.json(successResponse(
-      { messageSid: sid, testPhone },
+      { messageSid: sid, testPhone: normalizedPhone },
       'Test message sent successfully'
     ))
   } catch (err) {

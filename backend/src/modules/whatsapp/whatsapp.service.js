@@ -156,8 +156,9 @@ async function initiateBot(farmerId, organizationId, language = 'gu') {
   // 4. Build welcome message via Claude
   const welcomeMsg = await generateWelcomeMessage(farmer, alerts, selectedLanguage)
 
-  // 5. Send via Twilio
-  const sid = await sendMessage(farmer.phone, welcomeMsg)
+  // 5. Send via Twilio (normalize phone to E.164 format)
+  const normalizedPhone = normalizePhoneNumber(farmer.phone)
+  const sid = await sendMessage(normalizedPhone, welcomeMsg)
 
   // 6. Save to DB
   await saveMessage(conv.id, 'outbound', welcomeMsg, sid)
@@ -328,26 +329,26 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
 
     switch (intent) {
       case INTENTS.INSURANCE:
-        replyText = await handleInsuranceFlow(conv)
+        replyText = await handleInsuranceFlow(conv, inboundBody, conv.language)
         nextStage = 'insurance_flow'
         break
       case INTENTS.PMKISAN:
-        replyText = await handlePmKisanFlow(conv)
+        replyText = await handlePmKisanFlow(conv, inboundBody, conv.language)
         nextStage = 'pmkisan_flow'
         break
       case INTENTS.WEATHER:
-        replyText = await handleWeatherFlow(conv)
+        replyText = await handleWeatherFlow(conv, inboundBody, conv.language)
         nextStage = 'weather_flow'
         break
       case INTENTS.SCHEME:
-        replyText = await handleSchemeFlow(conv)
+        replyText = await handleSchemeFlow(conv, inboundBody, conv.language)
         nextStage = 'scheme_flow'
         break
       case INTENTS.PROFILE:
-        replyText = await handleProfileView(conv)
+        replyText = await handleProfileView(conv, inboundBody, conv.language)
         break
       case INTENTS.OFFICER:
-        replyText = await handleOfficerConnect(conv)
+        replyText = await handleOfficerConnect(conv, inboundBody, conv.language)
         nextStage = 'officer_connect'
         break
       case INTENTS.MENU:
@@ -382,6 +383,20 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
       last_user_message: inboundBody,
       last_stage: nextStage
     })
+
+    if (typeof replyText === 'object' && replyText?.message) {
+      replyText = replyText.message
+    }
+    
+    if (!replyText || typeof replyText !== 'string') {
+      logger.warn('Handler returned invalid reply, using fallback', {
+        conversationId: conv.id,
+        intent,
+        replyType: typeof replyText,
+        replyValue: replyText
+      })
+      replyText = getGenericFailureReply(conv.language || 'en')
+    }
 
     const sid = await sendMessage(cleanPhone, replyText)
     await saveMessage(conv.id, 'outbound', replyText, sid)
@@ -461,7 +476,7 @@ async function handleSmartFallback(conv, userMessage) {
     return await generateMenuMessage(conv, lang)
   }
 
-  // It's a free-text query — use intelligent handler with real data
+  // It's a free-text query — try Groq first, then Claude as backup
   try {
     const conversationData = {
       farmer_id: conv.farmer_id,
@@ -482,23 +497,70 @@ async function handleSmartFallback(conv, userMessage) {
     logger.info('Free-text reply generated successfully', {
       farmerId: conv.farmer_id,
       messageLength: reply.length,
-      lang
+      lang,
+      source: 'groq'
     })
 
     return reply
-  } catch (err) {
-    logger.error('Free-text handler failed, falling back to generic', {
-      error: err.message,
+  } catch (groqErr) {
+    logger.warn('Groq free-text handler failed, trying Claude backup', {
+      error: groqErr.message,
       farmerId: conv.farmer_id
     })
 
-    // Fallback: generic response in farmer's language
+    // BACKUP: Try Claude model
+    try {
+      const langMap = {
+        gu: 'Gujarati',
+        hi: 'Hindi',
+        en: 'English',
+        hinglish: 'Hinglish (Hindi-English mix)'
+      }
+      const langName = langMap[lang] || 'Gujarati'
+
+      const systemPrompt = `You are KhedutMitra, an expert agricultural advisor helping Indian farmers with practical farming advice.
+
+Farmer Details:
+- Name: ${conv.farmer_name}
+- Primary Crop: ${conv.primary_crop}
+- District: ${conv.district}
+- Village: ${conv.village}
+- Soil Type: ${conv.soil_type || 'loam'}
+- Irrigation: ${conv.irrigation_type || 'flood'}
+- Land: ${conv.land_area_acres || 2} acres
+- Risk Level: ${conv.vulnerability_label || 'medium'}
+
+You MUST reply ONLY in ${langName}. Keep response under 200 characters. Be specific and actionable. No markdown or formatting.`
+
+      const userPrompt = `Farmer Question: ${userMessage}`
+
+      const reply = await claudeClient.callClaude(systemPrompt, userPrompt, 300)
+
+      if (reply && reply.trim().length > 0) {
+        logger.info('Claude backup model generated reply', {
+          farmerId: conv.farmer_id,
+          messageLength: reply.length,
+          lang,
+          source: 'claude'
+        })
+        return reply
+      }
+    } catch (claudeErr) {
+      logger.error('Claude backup model also failed', {
+        groqError: groqErr.message,
+        claudeError: claudeErr.message,
+        farmerId: conv.farmer_id
+      })
+    }
+
+    // FALLBACK: Generic response in farmer's language (only if both models fail)
     const fallbacks = {
       gu: 'હું સમજ્યો નહિ. 0 ટાઇપ કરો મેનુ માટે અથવા 6 ટાઇપ કરો અધિકારી માટે.',
       hi: 'मुझे समझ नहीं आया। 0 टाइप करें menu के लिए या 6 officer के लिए।',
       en: "I don't understand. Type 0 for menu or 6 for officer.",
       hinglish: 'Samajh nahi aaya. 0 type karo menu ke liye ya 6 officer ke liye.'
     }
+    logger.info('Both models failed, using hardcoded fallback', { farmerId: conv.farmer_id, lang })
     return fallbacks[lang] || fallbacks.gu
   }
 }
@@ -1201,50 +1263,62 @@ function getMenuOption(type, lang) {
 
 function getFixedMenuContent(lang) {
   const menus = {
-    gu: `નમસ્તે! કઈ સેવા જોઈએ? કૃપા કરીને નંબર લખો:
+    gu: `🌾 *KedutMitra* - મુખ્ય મેનુ 🌾
 
-1. પાક વીમા માર્ગદર્શન
-2. PM-KISAN
-3. હવામાન અને પાક સલાહ
-4. સરકારી યોજનાઓ
-5. મારી પ્રોફાઇલ જુઓ
-6. અધિકારી સાથે વાત
+કઈ સેવા જોઈએ? નીચેથી બટન પસંદ કરો:
 
-0. મુખ્ય મેનુ
-ભાષા બદલવા GU / HI / EN લખો.`,
-    hi: `नमस्ते! किस सेवा की जरूरत है? कृपया नंबर लिखें:
+*1* 🛡️  પાક વીમા (PMFBY)
+*2* 💰 PM-કિસાન લાભ
+*3* 🌦️  હવામાન અને ખેતી સલાહ
+*4* 📋 સરકારી યોજનાઓ
+*5* 👤 મારી પ્રોફાઇલ જુઓ
+*6* 📞 અધિકારી સાથે વાત કરો
 
-1. फसल बीमा मार्गदर्शन
-2. PM-KISAN
-3. मौसम और फसल सलाह
-4. सरकारी योजनाएं
-5. मेरी प्रोफाइल देखें
-6. अधिकारी से बात करें
+_─────────────────_
+*0* પાછા જાવું
+🌐 ભાષા બદલવા: GU / HI / EN`,
+    hi: `🌾 *KhedutMitra* - मुख्य मेनू 🌾
 
-0. मुख्य मेनू
-भाषा बदलने के लिए GU / HI / EN लिखें।`,
-    en: `Hello! What service do you need? Please type a number:
+कौन सी सेवा चाहिए? नीचे से चुनें:
 
-1. Crop insurance guidance
-2. PM-KISAN
-3. Weather and crop advice
-4. Government schemes
-5. View my profile
-6. Talk to officer
+*1* 🛡️  फसल बीमा (PMFBY)
+*2* 💰 पीएम-किसान लाभ
+*3* 🌦️  मौसम और फसल सलाह
+*4* 📋 सरकारी योजनाएं
+*5* 👤 मेरी प्रोफाइल देखें
+*6* 📞 अधिकारी से बात करें
 
-0. Main menu
-To change language, type GU / HI / EN.`,
-    hinglish: `Namaste! Kis service ki zaroorat hai? Kripya number likho:
+_─────────────────_
+*0* वापस जाएं
+🌐 भाषा बदलने के लिए: GU / HI / EN`,
+    en: `🌾 *KhedutMitra* - Main Menu 🌾
 
-1. Fasal Bima Guidance
-2. PM-KISAN
-3. Mausam aur Fasal Salah
-4. Sarkaari Yojnaye
-5. Meri Profile Dekho
-6. Officer Se Baat Karo
+Which service do you need? Choose below:
 
-0. Main Menu
-Language badalne ke liye GU / HI / EN likho.`
+*1* 🛡️  Crop Insurance (PMFBY)
+*2* 💰 PM-Kisan Benefits
+*3* 🌦️  Weather & Farm Advice
+*4* 📋 Government Schemes
+*5* 👤 My Profile
+*6* 📞 Talk to Officer
+
+_─────────────────_
+*0* Go Back
+🌐 Change Language: GU / HI / EN`,
+    hinglish: `🌾 KhedutMitra - Main Menu 🌾
+
+Kaun si service chahiye? Neeche se chuno:
+
+*1* 🛡️  Fasal Bima (PMFBY)
+*2* 💰 PM-Kisan Labh
+*3* 🌦️  Mausam & Fasal Salah
+*4* 📋 Sarkari Yojnaye
+*5* 👤 Meri Profile Dekho
+*6* 📞 Officer Se Baat Karo
+
+_─────────────────_
+*0* Wapas Jao
+🌐 Bhasha Badlne Ke Liye: GU / HI / EN`
   }
   return menus[lang] || menus.en
 }
@@ -1269,19 +1343,19 @@ function getMenuMessage(lang) {
 
 function getMenuFollowup(lang) {
   return {
-    gu: 'બીજી સેવા માટે MENU અથવા 0 લખો.',
-    hi: 'दूसरी सेवा के लिए MENU या 0 लिखें।',
-    en: 'Type MENU or 0 for more services.',
-    hinglish: 'Aur service ke liye MENU ya 0 type karo.'
-  }[lang] || 'Type MENU for more services.'
+    gu: '📱 બીજી સેવા માટે નિમ્નમાંથી પસંદ કરો',
+    hi: '📱 दूसरी सेवा के लिए नीचे से चुनें',
+    en: '📱 Choose another service below',
+    hinglish: '📱 Aur service ke liye neeche se chuno'
+  }[lang] || 'Choose another service'
 }
 
 function getLanguageChangeHelp(lang) {
   return {
-    gu: 'ભાષા બદલવા GU / HI / EN લખો.',
-    hi: 'भाषा बदलने के लिए GU / HI / EN लिखें।',
-    en: 'To change language, type GU / HI / EN.',
-    hinglish: 'Language change karne ke liye GU / HI / EN type karo.'
+    gu: '\n🌐 ભાષા બદલવા: *GU* (ગુજરાતી) / *HI* (હિંદી) / *EN* (અંગ્રેજી)',
+    hi: '\n🌐 भाषा बदलें: *GU* (गुजराती) / *HI* (हिंदी) / *EN* (अंग्रेजी)',
+    en: '\n🌐 Change Language: *GU* (Gujarati) / *HI* (Hindi) / *EN* (English)',
+    hinglish: '\n🌐 Bhasha Badlo: *GU* (Gujarati) / *HI* (Hindi) / *EN* (English)'
   }[lang] || 'To change language, type GU / HI / EN.'
 }
 
@@ -1296,10 +1370,10 @@ function getMenuLabel(lang) {
 
 function getLanguageSwitchConfirmation(lang) {
   return {
-    gu: 'બરાબર. હવે આપણે ગુજરાતી માં વાત કરીએ. સેવા માટે નંબર લખો.',
-    hi: 'ठीक है। अब हम हिंदी में बात करेंगे। सेवा के लिए नंबर लिखें।',
-    en: 'Got it. Switching to English.',
-    hinglish: 'Thik hai. Ab language update ho gayi. Service ke liye number type karo.'
+    gu: '✅ ભાષા ગુજરાતીમાં બદલાઈ ગઈ છે.\n\nમેનુ માટે કોઈ પણ નંબર(0-6) લખો.',
+    hi: '✅ भाषा हिंदी में बदल गई है।\n\nमेनू के लिए कोई भी नंबर (0-6) लिखें।',
+    en: '✅ Language changed to English.\n\nType any number (0-6) for menu options.',
+    hinglish: '✅ Language English mein badal gayi hai.\n\nMenu ke liye koi bhi number (0-6) type karo.'
   }[lang] || 'Language updated.'
 }
 
@@ -1314,15 +1388,55 @@ function getProfileNotFoundMsg(lang) {
 
 function getOfficerConfirmation(lang) {
   return {
-    gu: 'તમારી વિનંતી નોંધાઈ ગઈ છે. અધિકારી 2 કલાકમાં ફોન કરશે. સમય: સોમ-શનિ, સવારે 9 થી સાંજે 5.',
-    hi: '2 Ghante Mein Officer Call Karega. Office: Somvar-Shanivar 9am-5pm',
-    en: 'Officer will call you within 2 hours. Office: Mon-Sat 9am-5pm.',
-    hinglish: '2 ghante mein officer call karega. Office: Mon-Sat 9am-5pm'
+    gu: `✅ *અધિકારી કાલ્બેક વિનંતી સ્વીકૃત*
+
+📞 બેંક અધિકારી તમને 2 કલાક માં કોલ કરશે.
+
+⏰ *કામના સમય:*
+સોમવાર - શનિવાર
+સવારે 9:00 - સાંજે 5:00
+
+👤 તમારા ફોન નંબર પર નજર રાખો.
+તમે ઑફલાઇન હોય તો ફોન માં સંદેશ છોડશે`,
+    hi: `✅ *अधिकारी कॉलबैक अनुरोध स्वीकृत*
+
+📞 बैंक अधिकारी 2 घंटे में आपको कॉल करेगा।
+
+⏰ *कार्य समय:*
+सोमवार - शनिवार
+सुबह 9:00 - शाम 5:00
+
+👤 अपने फोन पर नज़र रखें।
+यदि आप ऑफलाइन हैं तो वॉयस मैसेज छोड़ेंगे।`,
+    en: `✅ *Officer Callback Request Accepted*
+
+📞 Bank officer will call you within 2 hours.
+
+⏰ *Working Hours:*
+Monday - Saturday
+9:00 AM - 5:00 PM
+
+👤 Keep your phone handy.
+We'll leave a voicemail if you're offline.`,
+    hinglish: `✅ *Officer Callback Request Accepted*
+
+📞 Bank officer 2 ghante mein call karega.
+
+⏰ *Kaam ka Samay:*
+Somvar - Shanivar
+9:00 AM - 5:00 PM
+
+👤 Apna phone idle rakhna.
+Offline ho to voicemail chhod denge.`
   }[lang] || 'Officer will contact you soon.'
 }
 
 function getNoSessionMessage() {
-  return 'Hello! Please ask your bank to send you a KhedutMitra WhatsApp message to start. | Namaste! Bank se kahen KhedutMitra WhatsApp send kare.'
+  return `📱 *નમસ્તે! કૃપા સહાય માટે બેંક સાથે સંપર્ક કરો*
+
+Hello! Please contact your bank for KhedutMitra WhatsApp assistance.
+
+नमस्ते! कृपया KhedutMitra सहायता के लिए बैंक से संपर्क करें।`
 }
 
 function detectProjectTopic(userMessage) {
@@ -1365,10 +1479,26 @@ function getOutOfScopeMessage(lang) {
 
 function getGenericFailureReply(lang) {
   return {
-    gu: 'માફ કરશો, હાલમાં જવાબમાં સમસ્યા આવી. કૃપા કરીને ફરી પ્રયત્ન કરો અથવા 0 મેનુ / 6 અધિકારી મદદ લખો.',
-    hi: 'माफ कीजिए, अभी जवाब देने में समस्या हुई। कृपया फिर कोशिश करें या 0 मेनू / 6 अधिकारी मदद लिखें।',
-    en: 'Sorry, we had a temporary issue replying. Please try again or type 0 for menu / 6 for officer help.',
-    hinglish: 'Sorry, reply mein temporary issue aaya. Dobara try karo ya 0 menu / 6 officer help type karo.'
+    gu: `⚠️ *કૃમજીશ હવે થોડો મુશ્કેલી આવી*
+
+કૃપા કરીને ફરી કોશિશ કરો:
+📱 *0* - મેનુ પર જાવું
+📞 *6* - અધિકારી મદદ માટે`,
+    hi: `⚠️ *क्रिप्टा, थोड़ी समस्या आई*
+
+कृपया फिर कोशिश करें:
+📱 *0* - मेनू पर जाएं
+📞 *6* - अधिकारी मदद के लिए`,
+    en: `⚠️ *Sorry, We Had a Temporary Issue*
+
+Please try again:
+📱 *0* - Go to Menu
+📞 *6* - Get Officer Help`,
+    hinglish: `⚠️ *Maafi Chaata Hoon, Temporary Issue Aaya*
+
+Dobara koshish karo:
+📱 *0* - Menu par jao
+📞 *6* - Officer help ke liye`
   }[lang] || 'Sorry, temporary issue. Type 0 for menu / 6 for officer help.'
 }
 
@@ -1387,10 +1517,30 @@ async function closeConversation(conversationId, reason = 'stop') {
 
 function getStopConfirmation(lang) {
   return {
-    gu: 'બરાબર. આ ચેટ બંધ કરી દીધી છે. ફરી શરૂ કરવા HI અથવા HELP લખો.',
-    hi: 'ठीक है। यह चैट बंद कर दी गई है। फिर शुरू करने के लिए HI या HELP लिखें।',
-    en: 'Okay, this chat is closed now. Send HI or HELP anytime to start again.',
-    hinglish: 'Thik hai, chat band kar di gayi hai. Dobara shuru karne ke liye HI ya HELP bhejo.'
+    gu: `✅ *ચેટ બંધ કરી દીધી છે*
+
+જ્યારે પણ જરૂર હોય ફરી શરૂ કરો:
+📱 *HI* અથવા *HELP* લખો
+
+આશા રાખું તમે કવચ અને સમGothic્ધ રહ્યા છો! 🌾`,
+    hi: `✅ *चैट बंद की गई है*
+
+जब भी चाहिए फिर से शुरू करो:
+📱 *HI* या *HELP* लिखो
+
+उम्मीद है तुम सुरक्षित और खुश रहो! 🌾`,
+    en: `✅ *Chat Closed*
+
+Start again anytime:
+📱 Type *HI* or *HELP*
+
+Take care and stay safe! 🌾`,
+    hinglish: `✅ *Chat Band Ki Gayi*
+
+Kabhi bhi shuru kar sakta hai:
+📱 *HI* ya *HELP* type karo
+
+Apne aap ka dhyan rakho! 🌾`
   }[lang] || 'Chat closed. Send HI or HELP to start again.'
 }
 
@@ -1455,13 +1605,29 @@ async function findFarmerByPhone(phone) {
 }
 
 function getSelfStartWelcomeMessage(lang, farmerName) {
-  const name = farmerName || 'Farmer'
+  const name = farmerName || 'ખેડૂત'
   return {
-    gu: `નમસ્તે ${name}! હું KhedutMitra છું. મદદ માટે નીચે મેનુમાંથી નંબર પસંદ કરો.`,
-    hi: `नमस्ते ${name}! मैं KhedutMitra हूं। मदद के लिए नीचे मेनू से नंबर चुनें।`,
-    en: `Hello ${name}! I am KhedutMitra. Choose a number from the menu below for help.`,
-    hinglish: `Namaste ${name}! Main KhedutMitra hoon. Help ke liye neeche menu se number chuno.`
-  }[lang] || `Hello ${name}! I am KhedutMitra. Choose a number from the menu below for help.`
+    gu: `🌾 *સ્વાગત છે, ${name}!*
+
+હું *KhedutMitra* છું - તમારો કૃષિ સહાયક.
+
+📋 મદદ માટે નીચેથી સેવા પસંદ કરો:`,
+    hi: `🌾 *स्वागत है, ${name}!*
+
+मैं *KhedutMitra* हूँ - आपका कृषि सहायक।
+
+📋 मदद के लिए नीचे से सेवा चुनें:`,
+    en: `🌾 *Welcome, ${name}!*
+
+I'm *KhedutMitra* - Your Farm Assistant.
+
+📋 Choose a service below for help:`,
+    hinglish: `🌾 *Swagat Hai, ${name}!*
+
+Main *KhedutMitra* hoon - Aapka Farm Assistant.
+
+📋 Help ke liye neeche se service chuno:`
+  }[lang] || `Welcome, ${name}! Choose a service below.`
 }
 
 module.exports = {
@@ -1474,5 +1640,6 @@ module.exports = {
   saveContext,
   getConversationHistory,
   buildContextualPrompt,
-  buildFarmerContext
+  buildFarmerContext,
+  normalizePhoneNumber
 }

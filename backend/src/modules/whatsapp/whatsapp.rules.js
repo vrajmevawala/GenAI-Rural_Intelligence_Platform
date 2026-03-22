@@ -31,7 +31,11 @@ const WEATHER_ONLY_KEYWORDS = [
   'havaman aaj', 'will it rain', 'kitna rain', 'ketu tapman',
   'barish hogi', 'varsa padse', 'aaj nu havaman', 'aaj temps',
   'temperature ketu', 'kal temperature', 'rainfall aaj',
-  'weather aaj', 'aaj khidi', 'paani padse', 'baarish'
+  'weather aaj', 'aaj khidi', 'paani padse', 'baarish',
+  'rain tomorrow', 'tomorrow rain', 'rain kal', 'kal rain',
+  'humidity', 'wind speed', 'windspeed', 'clouds', 'sunny',
+  'rainy', 'cloudy', 'stormy', 'forecast aaj', 'mausam',
+  'barsat', 'varsh', 'weather report', 'weather forecast'
 ];
 
 const DISEASE_KEYWORDS = [
@@ -66,12 +70,17 @@ function ruleBasedClassify(message) {
   const lower = message.toLowerCase().trim();
   console.log(`[RuleClassify] Testing: "${message}"`);
 
-  // Check soil keywords FIRST — highest priority
+  // Check WEATHER keywords FIRST — highest priority to prevent misclassification
+  if (WEATHER_ONLY_KEYWORDS.some(kw => lower.includes(kw))) {
+    console.log(`[RuleClassify] ✅ Matched WEATHER_QUERY (highest priority)`);
+    return 'weather_query';
+  }
+
+  // Check soil keywords
   if (SOIL_KEYWORDS.some(kw => lower.includes(kw))) {
     console.log(`[RuleClassify] ✅ Matched SOIL_QUERY`);
     return 'soil_query';
   }
-  console.log(`[RuleClassify] ❌ No soil keywords`);
 
   // Check crop suggestion keywords
   if (CROP_SUGGEST_KEYWORDS.some(kw => lower.includes(kw))) {
@@ -85,25 +94,20 @@ function ruleBasedClassify(message) {
     return 'disease_query';
   }
 
-  // Check irrigation keywords
-  if (IRRIGATION_KEYWORDS.some(kw => lower.includes(kw))) {
-    return 'irrigation_query';
-  }
-
   // Check fertilizer keywords
   if (FERTILIZER_KEYWORDS.some(kw => lower.includes(kw))) {
     return 'fertilizer_query';
   }
 
+  // Check irrigation keywords — checked AFTER weather to avoid conflicts
+  if (IRRIGATION_KEYWORDS.some(kw => lower.includes(kw))) {
+    console.log(`[RuleClassify] ✅ Matched IRRIGATION_QUERY`);
+    return 'irrigation_query';
+  }
+
   // Check market keywords
   if (MARKET_KEYWORDS.some(kw => lower.includes(kw))) {
     return 'market_price_query';
-  }
-
-  // Check weather ONLY if message is ONLY about weather
-  if (WEATHER_ONLY_KEYWORDS.some(kw => lower.includes(kw))) {
-    console.log(`[RuleClassify] ✅ Matched WEATHER_QUERY`);
-    return 'weather_query';
   }
 
   // Cannot determine — let Groq classify

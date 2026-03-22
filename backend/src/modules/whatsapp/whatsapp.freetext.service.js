@@ -119,18 +119,31 @@ async function handleFreeText(userMessage, conv) {
 
 async function classifyWithGroq(message, lang) {
   console.log(`[GroqClassify] Fallback called: "${message}"`);
-  const systemPrompt = `Classify into ONE category only. Reply with just the name.
-soil_query | crop_suggestion | weather_query | disease_query | fertilizer_query
+  const systemPrompt = `Classify the farmer's message into ONE category only. Reply with ONLY the category name (no explanation).
+
+CRITICAL: If asking about rain, weather, temperature, or forecast → weather_query
+CRITICAL: If asking HOW to water or irrigation methods → irrigation_query (only if asking how, not if it will rain)
+
+Categories:
+soil_query | weather_query | crop_suggestion | disease_query | fertilizer_query
 irrigation_query | market_price_query | profile_query | general_farming`;
 
   try {
-    const result = await callGroqFast(systemPrompt, `Message: "${message}"`, 15);
+    const result = await callGroqFast(systemPrompt, `Classify: "${message}"`, 25);
     const cleaned = result.trim().toLowerCase().split('\n')[0].split(' ')[0].replace(/[^a-z_]/g, '');
-    console.log(`[GroqClassify] Result: "${cleaned}"`);
-    return cleaned || 'general_farming';
+    console.log(`[GroqClassify] Classified as: "${cleaned}"`);
+    
+    // Validate result
+    const validCategories = ['soil_query', 'crop_suggestion', 'weather_query', 'disease_query', 
+                            'fertilizer_query', 'irrigation_query', 'market_price_query', 
+                            'profile_query', 'general_farming'];
+    if (!validCategories.includes(cleaned)) {
+      console.warn(`[GroqClassify] Invalid category detected: "${cleaned}", defaulting to general_farming`);
+      return 'general_farming';
+    }
+    return cleaned;
   } catch (e) {
-    logger.warn('Groq classification failed', { error: e.message });
-    return 'general_farming';
+    logger.warn('Groq classification failed', { error: e.message, message });
     return 'general_farming';
   }
 }

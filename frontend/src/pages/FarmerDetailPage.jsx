@@ -423,6 +423,7 @@ export default function FarmerDetailPage() {
           defaultValues={editDefaultValues}
           loading={updateFarmer.isPending}
           onSubmit={(data) => {
+            console.log('Form submitted with data:', data)
             const payload = {
               ...data,
               name: data.name?.trim(),
@@ -432,9 +433,18 @@ export default function FarmerDetailPage() {
               village: data.village?.trim(),
             }
 
+            console.log('Sending update payload:', payload)
             updateFarmer.mutate(
               { id, data: payload },
-              { onSuccess: () => setShowEditModal(false) }
+              {
+                onSuccess: () => {
+                  console.log('Update successful, closing modal')
+                  setShowEditModal(false)
+                },
+                onError: (err) => {
+                  console.error('Update error:', err)
+                }
+              }
             )
           }}
         />

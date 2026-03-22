@@ -18,9 +18,33 @@ const step1Schema = z.object({
   district: z.string().trim().min(1, 'Select district'),
   taluka: z.string().trim().min(1, 'Taluka is required'),
   village: z.string().trim().min(1, 'Village is required'),
+  // Allow other fields to pass through without validation on this step
+  land_area_acres: z.any().optional(),
+  primary_crop: z.any().optional(),
+  secondary_crop: z.any().optional(),
+  soil_type: z.any().optional(),
+  irrigation_type: z.any().optional(),
+  annual_income_inr: z.any().optional(),
+  family_size: z.any().optional(),
+  loan_amount_inr: z.any().optional(),
+  loan_type: z.any().optional(),
+  loan_due_date: z.any().optional(),
+  has_crop_insurance: z.any().optional(),
+  insurance_expiry_date: z.any().optional(),
+  pm_kisan_enrolled: z.any().optional(),
+  bank_account_number: z.any().optional(),
 })
 
 const step2Schema = z.object({
+  // From step 1 - allow to pass through
+  name: z.any().optional(),
+  phone: z.any().optional(),
+  aadhaar_last4: z.any().optional(),
+  preferred_language: z.any().optional(),
+  district: z.any().optional(),
+  taluka: z.any().optional(),
+  village: z.any().optional(),
+  // Step 2 validation
   land_area_acres: z.coerce.number().min(0, 'Must be positive').optional(),
   primary_crop: z.string().optional(),
   secondary_crop: z.string().optional(),
@@ -28,9 +52,33 @@ const step2Schema = z.object({
   irrigation_type: z.string().optional(),
   annual_income_inr: z.coerce.number().min(0).optional(),
   family_size: z.coerce.number().min(1).optional(),
+  // Allow other fields
+  loan_amount_inr: z.any().optional(),
+  loan_type: z.any().optional(),
+  loan_due_date: z.any().optional(),
+  has_crop_insurance: z.any().optional(),
+  insurance_expiry_date: z.any().optional(),
+  pm_kisan_enrolled: z.any().optional(),
+  bank_account_number: z.any().optional(),
 })
 
 const step3Schema = z.object({
+  // From previous steps - allow to pass through
+  name: z.any().optional(),
+  phone: z.any().optional(),
+  aadhaar_last4: z.any().optional(),
+  preferred_language: z.any().optional(),
+  district: z.any().optional(),
+  taluka: z.any().optional(),
+  village: z.any().optional(),
+  land_area_acres: z.any().optional(),
+  primary_crop: z.any().optional(),
+  secondary_crop: z.any().optional(),
+  soil_type: z.any().optional(),
+  irrigation_type: z.any().optional(),
+  annual_income_inr: z.any().optional(),
+  family_size: z.any().optional(),
+  // Step 3 validation
   loan_amount_inr: z.coerce.number().min(0).optional(),
   loan_type: z.string().optional(),
   loan_due_date: z.string().optional(),
@@ -70,8 +118,23 @@ export default function FarmerForm({ onSubmit, defaultValues = {}, loading = fal
 
   const handleNext = async () => {
     const valid = await trigger()
-    if (valid && step < 2) setStep(step + 1)
-    if (valid && step === 2) onSubmit(getValues())
+    console.log('Form validation result:', valid, 'Step:', step, 'Errors:', Object.keys(errors).length)
+    
+    if (!valid) {
+      console.warn('Validation failed for step', step, 'Errors:', errors)
+      return
+    }
+    
+    if (step < 2) {
+      setStep(step + 1)
+      return
+    }
+    
+    if (step === 2) {
+      const formData = getValues()
+      console.log('Submitting form data:', formData)
+      onSubmit(formData)
+    }
   }
 
   const hasInsurance = watch('has_crop_insurance')
