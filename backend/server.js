@@ -4,6 +4,7 @@ const { info } = require("./src/utils/logger");
 const { scheduleVulnerabilityRecalcJob, runVulnerabilityRecalcJob } = require("./src/jobs/vulnerabilityRecalcJob");
 const { scheduleSchemeExpiryAlertJob, runSchemeExpiryAlertJob } = require("./src/jobs/schemeExpiryAlertJob");
 const { scheduleWeatherSyncJob, runWeatherSyncJob } = require("./src/jobs/weatherSyncJob");
+// Removed: Intelligent alert job - alerts now send AUTOMATICALLY when generated
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ app.listen(PORT, async () => {
   scheduleVulnerabilityRecalcJob();
   scheduleSchemeExpiryAlertJob();
   scheduleWeatherSyncJob();
+  // Removed: scheduleIntelligentAlertJob() - alerts auto-send when generated
 
   if (process.env.NODE_ENV !== "production") {
     await runWeatherSyncJob().catch(() => {});

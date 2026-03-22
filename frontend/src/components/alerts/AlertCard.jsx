@@ -2,7 +2,6 @@ import { motion } from 'framer-motion'
 import { User, Calendar } from 'lucide-react'
 import AlertPriorityBadge from './AlertPriorityBadge'
 import Badge from '@/components/ui/Badge'
-import Button from '@/components/ui/Button'
 import { formatRelative } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import TranslatedText from '@/components/common/TranslatedText'
@@ -67,25 +66,6 @@ export default function AlertCard({ alert, onStatusUpdate, index = 0 }) {
             {alert.created_at ? formatRelative(alert.created_at) : 'Recently'}
           </span>
         </div>
-
-        {alert.status === 'pending' && onStatusUpdate && (
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => onStatusUpdate(alert.id, 'sent')}
-            >
-              Send
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onStatusUpdate(alert.id, 'failed')}
-            >
-              Dismiss
-            </Button>
-          </div>
-        )}
       </div>
     </motion.div>
   )

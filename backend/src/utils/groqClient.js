@@ -1,129 +1,205 @@
+const Groq = require("groq-sdk");
 const { info, warn, error } = require("./logger");
 
-// Groq API endpoint
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL_CANDIDATES = [
-  process.env.GROQ_MODEL,
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-  "mixtral-8x7b-32768"
-].filter(Boolean);
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+// Primary model — fast and capable
+const PRIMARY_MODEL = "llama-3.3-70b-versatile";
+// Fallback model if primary fails
+const FALLBACK_MODEL = "llama-3.1-8b-instant";
+
+// These phrases indicate a generic response — reject and retry
+const GENERIC_PHRASES = [
+  "ખેડૂત મિત્રો",
+  "tamara khetine",
+  "નજીકના બેંક શાખામ",
+  "અમે તૈયાર છીએ",
+  "ખેતીને આર્થિક",
+  "khedut mitro",
+  "dear farmer",
+  "as a farmer",
+  "farming is important",
+  "agriculture is the backbone",
+  "we are here to help",
+  "visit your nearest",
+  "please contact",
+  "it is important to",
+  "you should consider",
+  "farmers should",
+  "in general",
+  "typically",
+  "usually farmers"
+];
+
+function isGenericResponse(text) {
+  const lower = text.toLowerCase();
+  return GENERIC_PHRASES.some((phrase) => lower.includes(phrase.toLowerCase()));
+}
+
+function extractFarmerName(prompt) {
+  const match = prompt.match(/(?:Name|નામ|naam):\s*([^\n]+)/i);
+  return match ? match[1].trim() : "farmer";
+}
 
 /**
- * Call Groq API for dynamic content generation
+ * Call Groq API with intelligent retry and generic response detection
+ * Temperature is intentionally LOW (0.4) to reduce hallucination
+ * @param {string} systemPrompt - System instructions
+ * @param {string} userPrompt - User request
+ * @param {number} maxTokens - Max response tokens
+ * @param {number} retries - Number of retry attempts
+ * @returns {Promise<string>} Generated text
+ */
+async function callGroq(systemPrompt, userPrompt, maxTokens = 1024, retries = 3) {
+  if (!process.env.GROQ_API_KEY) {
+    error("GROQ_API_KEY not configured");
+    throw new Error("GROQ_API_KEY is not set in environment variables");
+  }
+
+  let lastText = "";
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const model = attempt <= 2 ? PRIMARY_MODEL : FALLBACK_MODEL;
+
+      // TEMPERATURE IS 0.4 — LOW to reduce hallucination and generic responses
+      const completion = await groq.chat.completions.create({
+        model,
+        max_tokens: maxTokens,
+        temperature: 0.4, // CRITICAL: DO NOT INCREASE — causes generic output
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ]
+      });
+
+      const text = completion.choices[0]?.message?.content?.trim() || "";
+      lastText = text;
+
+      // REJECT generic responses — retry with stronger prompt
+      if (isGenericResponse(text)) {
+        warn(`Groq generic response detected on attempt ${attempt} — retrying with stricter prompt`, {
+          model,
+          attempt
+        });
+
+        if (attempt < retries) {
+          // Add stronger instruction on retry
+          const farmerName = extractFarmerName(userPrompt);
+          const stricterAddition = `
+
+============ CRITICAL RETRY INSTRUCTION ============
+Your previous response was REJECTED because it was GENERIC.
+
+BANNED words/phrases — DO NOT use:
+- "ખેડૂત મિત્રો" — this is for ALL farmers, not this one
+- "visit your nearest branch" — name the ACTUAL branch
+- "we are here to help" — useless filler
+- "it is important" — filler, skip it
+- "in general" or "typically" — NO general advice
+- Any sentence that works for ANY farmer
+
+MANDATORY — Your response MUST contain:
+1. Farmer's actual name: ${farmerName}
+2. Their actual crop name
+3. Their actual district name
+4. At least ONE specific number (₹ amount, temperature, dose, etc.)
+5. At least ONE specific product name with exact dose
+6. At least ONE specific action with specific timing (TODAY, TOMORROW, etc.)
+
+If you write even one sentence that could apply to a different farmer 
+with a different crop, your response FAILS.
+
+NOW WRITE THE ALERT AGAIN with these STRICT rules enforced.
+===================================================`;
+
+          // Reconstruct prompt with stricter version
+          const stricterPrompt = userPrompt + stricterAddition;
+          const strictCompletion = await groq.chat.completions.create({
+            model,
+            max_tokens: maxTokens,
+            temperature: 0.4,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: stricterPrompt }
+            ]
+          });
+
+          const strictText = strictCompletion.choices[0]?.message?.content?.trim() || "";
+
+          if (!isGenericResponse(strictText)) {
+            info(`Groq strict retry successful`, {
+              model,
+              attempt: attempt + 1,
+              tokens: strictCompletion.usage?.total_tokens
+            });
+            return strictText;
+          } else {
+            warn(`Groq strict retry still generic — using original attempt ${attempt}`, {
+              model
+            });
+            return lastText;
+          }
+        }
+      }
+
+      info(`Groq call success`, {
+        model,
+        tokens: completion.usage?.total_tokens,
+        attempt,
+        isGeneric: false
+      });
+
+      return text;
+    } catch (err) {
+      warn(`Groq attempt ${attempt} failed`, { message: err.message });
+
+      // Rate limit — wait before retry
+      if (err.status === 429) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+        if (attempt < retries) continue;
+      }
+
+      // Last attempt failed
+      if (attempt === retries) {
+        error("Groq failed after all retries", { message: err.message });
+        throw err;
+      }
+
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+
+  return lastText;
+}
+
+/**
+ * Fast Groq call for classification tasks (low temperature, small model)
  * @param {string} systemPrompt - System instructions
  * @param {string} userPrompt - User request
  * @param {number} maxTokens - Max response tokens
  * @returns {Promise<string>} Generated text
  */
-async function callGroq(systemPrompt, userPrompt, maxTokens = 500) {
-  const apiKey = process.env.GROQ_API_KEY;
+async function callGroqFast(systemPrompt, userPrompt, maxTokens = 50) {
+  const completion = await groq.chat.completions.create({
+    model: FALLBACK_MODEL,
+    max_tokens: maxTokens,
+    temperature: 0.1, // Low temp for classification tasks
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ]
+  });
 
-  if (!apiKey) {
-    warn("GROQ_API_KEY not configured", {
-      action: "groq.api.missing"
-    });
-    return null;
-  }
+  info("Groq fast call success", { model: FALLBACK_MODEL });
 
-  let lastError = null;
-
-  for (const model of MODEL_CANDIDATES) {
-    const payload = {
-      model,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userPrompt
-        }
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.7
-    };
-
-    let attempts = 0;
-    let delayMs = 500;
-
-    while (attempts < 3) {
-      attempts += 1;
-
-      try {
-        const response = await fetch(GROQ_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const text = data.choices?.[0]?.message?.content || "";
-
-          if (text) {
-            info("Groq call success", {
-              model,
-              promptLength: userPrompt.length,
-              responseLength: text.length,
-              attempt: attempts
-            });
-            return text.trim();
-          }
-        }
-
-        const body = await response.text();
-        const isModelNotFound = response.status === 400 && /model|does not exist|invalid model/i.test(body);
-
-        if (isModelNotFound) {
-          warn("Groq model unavailable, trying next model", {
-            model,
-            status: response.status
-          });
-          break;
-        }
-
-        if (response.status === 429 || response.status === 503) {
-          warn("Groq rate limit/service unavailable, retrying", {
-            model,
-            attempt: attempts,
-            status: response.status
-          });
-          if (attempts < 3) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-            delayMs *= 2;
-            continue;
-          }
-        }
-
-        lastError = new Error(`Groq API failed (${model}): ${response.status}`);
-        error("Groq API error", {
-          model,
-          status: response.status,
-          body: body.substring(0, 200)
-        });
-        if (attempts >= 3) break;
-      } catch (err) {
-        lastError = err;
-        error("Groq fetch error", {
-          model,
-          message: err.message,
-          attempt: attempts
-        });
-        if (attempts >= 3) break;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        delayMs *= 2;
-      }
-    }
-  }
-
-  throw lastError || new Error("Groq API failed after retries");
+  return completion.choices[0]?.message?.content?.trim() || "";
 }
 
 module.exports = {
-  callGroq
+  callGroq,
+  callGroqFast,
+  isGenericResponse
 };

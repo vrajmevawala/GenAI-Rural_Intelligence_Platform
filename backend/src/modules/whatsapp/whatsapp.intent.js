@@ -14,6 +14,7 @@ const INTENTS = {
   LANGUAGE_HINGLISH: 'lang_hinglish',
   YES: 'yes',
   NO: 'no',
+  STOP: 'stop',
   APPLY: 'apply',
   IMAGE: 'image',
   OTHER: 'other'
@@ -27,14 +28,33 @@ const KEYWORD_MAP = {
   '5': INTENTS.PROFILE,
   '6': INTENTS.OFFICER,
   '0': INTENTS.MENU,
+  'hi': INTENTS.MENU,
+  'hii': INTENTS.MENU,
+  'hiii': INTENTS.MENU,
+  'hello': INTENTS.MENU,
+  'hey': INTENTS.MENU,
+  'start': INTENTS.MENU,
+  'help': INTENTS.MENU,
+  'namaste': INTENTS.MENU,
+  'main menu': INTENTS.MENU,
+  'show menu': INTENTS.MENU,
+  'open menu': INTENTS.MENU,
+  'नमस्ते': INTENTS.MENU,
+  'नमस्कार': INTENTS.MENU,
+  'નમસ્તે': INTENTS.MENU,
   'gu': INTENTS.LANGUAGE_GU,
   'gujarati': INTENTS.LANGUAGE_GU,
   'gu ma': INTENTS.LANGUAGE_GU,
-  'hi': INTENTS.LANGUAGE_HI,
   'hindi': INTENTS.LANGUAGE_HI,
+  'lang hi': INTENTS.LANGUAGE_HI,
+  'language hi': INTENTS.LANGUAGE_HI,
   'en': INTENTS.LANGUAGE_EN,
   'english': INTENTS.LANGUAGE_EN,
+  'lang en': INTENTS.LANGUAGE_EN,
+  'language en': INTENTS.LANGUAGE_EN,
   'hinglish': INTENTS.LANGUAGE_HINGLISH,
+  'lang hinglish': INTENTS.LANGUAGE_HINGLISH,
+  'language hinglish': INTENTS.LANGUAGE_HINGLISH,
   'menu': INTENTS.MENU,
   'back': INTENTS.MENU,
   'yes': INTENTS.YES,
@@ -46,6 +66,12 @@ const KEYWORD_MAP = {
   'na': INTENTS.NO,
   'ना': INTENTS.NO,
   'ના': INTENTS.NO,
+  'stop': INTENTS.STOP,
+  'close': INTENTS.STOP,
+  'exit': INTENTS.STOP,
+  'unsubscribe': INTENTS.STOP,
+  'बंद': INTENTS.STOP,
+  'બંધ': INTENTS.STOP,
   'apply': INTENTS.APPLY
 }
 
@@ -72,15 +98,20 @@ const MULTILINGUAL_KEYWORDS = {
   ],
   [INTENTS.OFFICER]: [
     'officer', 'bank', 'contact', 'call', 'phone', 'baat',
-    'baat karo', 'वात', 'વાત', 'sahayak', 'help'
+    'baat karo', 'वात', 'વાત', 'sahayak'
   ]
 }
 
 async function detectIntent(userMessage, language, conversationStage) {
   const normalized = String(userMessage || '').trim().toLowerCase()
+  const normalizedNoPunct = normalized.replace(/[!?.:,;]+/g, '').trim()
 
   if (KEYWORD_MAP[normalized]) {
     return { intent: KEYWORD_MAP[normalized], confidence: 1.0, source: 'keyword' }
+  }
+
+  if (KEYWORD_MAP[normalizedNoPunct]) {
+    return { intent: KEYWORD_MAP[normalizedNoPunct], confidence: 1.0, source: 'keyword' }
   }
 
   for (const [intent, keywords] of Object.entries(MULTILINGUAL_KEYWORDS)) {
@@ -97,7 +128,7 @@ async function detectIntent(userMessage, language, conversationStage) {
 The farmer may write in Gujarati, Hindi, English, or Hinglish.
 Classify their message into EXACTLY ONE of these intents:
 insurance, pmkisan, weather, scheme, profile, officer, menu,
-yes, no, apply, lang_gu, lang_hi, lang_en, lang_hinglish, other.
+yes, no, stop, apply, lang_gu, lang_hi, lang_en, lang_hinglish, other.
 Current conversation stage: ${conversationStage}
 Current language: ${language}
 Reply with ONLY the intent word. Nothing else.`

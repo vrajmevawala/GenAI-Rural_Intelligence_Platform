@@ -6,8 +6,12 @@ const claudeClient = require('../../utils/claudeClient')
 const { generateAlert } = require('../../utils/alertGenerator')
 const { ALERT_TYPES } = require('../../utils/alertTypes')
 const { detectIntent, INTENTS } = require('./whatsapp.intent')
+const { getWeather, fetchWeatherForDistrict } = require('../weather/weather.service')
+const schemesService = require('../schemes/schemes.service')
 const { AppError } = require('../../middleware/errorHandler')
 const logger = require('../../utils/logger')
+const { handleFreeText } = require('./whatsapp.freetext.service')
+const { ruleBasedClassify, extractCropFromMessage } = require('./whatsapp.rules')
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -237,8 +241,44 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
     )
 
     if (convResult.rows.length === 0) {
-      // No active session — send a "please contact your bank" message
       logger.info('No active WhatsApp conversation', { phone: cleanPhone })
+
+      // Allow farmers to self-start by sending greeting/help keywords.
+      if (isSelfStartMessage(inboundBody)) {
+        const farmer = await findFarmerByPhone(cleanPhone)
+        if (farmer) {
+          const language = farmer.preferred_language || farmer.language || 'gu'
+          const conv = await getOrCreateConversation(
+            farmer.id,
+            farmer.organization_id,
+            cleanPhone,
+            language
+          )
+
+          await saveMessage(conv.id, 'inbound', inboundBody)
+          await updateStage(conv.id, 'menu', { started_by_farmer: true, trigger: inboundBody })
+
+          const convForMenu = {
+            ...conv,
+            farmer_name: farmer.name,
+            district: farmer.district,
+            village: farmer.village,
+            primary_crop: farmer.primary_crop,
+            language
+          }
+          const reply = `${getSelfStartWelcomeMessage(language, farmer.name)}\n\n${await generateMenuMessage(convForMenu, language)}`
+          const sid = await sendMessage(cleanPhone, reply)
+          await saveMessage(conv.id, 'outbound', reply, sid)
+
+          return {
+            handled: true,
+            conversationId: conv.id,
+            nextStage: 'menu',
+            startedByFarmer: true
+          }
+        }
+      }
+
       const noSessionMsg = getNoSessionMessage()
       await sendMessage(cleanPhone, noSessionMsg)
       return { handled: false, message: 'No active session' }
@@ -258,7 +298,10 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
       return { handled: true, conversationId: conv.id, nextStage: conv.current_stage }
     }
 
-    const detected = await detectIntent(inboundBody, conv.language, conv.current_stage)
+    const menuIntent = conv.current_stage === 'menu' ? resolveMenuSelectionIntent(inboundBody) : null
+    const detected = menuIntent
+      ? { intent: menuIntent, source: 'menu_text', confidence: 1.0 }
+      : await detectIntent(inboundBody, conv.language, conv.current_stage)
     const intent = detected.intent
 
     if (String(intent || '').startsWith('lang_')) {
@@ -318,13 +361,18 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
         replyText = await generateMenuMessage(conv, conv.language)
         nextStage = 'menu'
         break
+      case INTENTS.STOP:
+        await closeConversation(conv.id, inboundBody)
+        replyText = getStopConfirmation(conv.language)
+        nextStage = 'done'
+        break
       case INTENTS.OTHER:
       default:
         replyText = await handleSmartFallback(conv, inboundBody)
         break
     }
 
-    if (nextStage && nextStage !== conv.current_stage) {
+    if (intent !== INTENTS.STOP && nextStage && nextStage !== conv.current_stage) {
       await updateStage(conv.id, nextStage)
     }
 
@@ -345,7 +393,21 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
       from: fromPhone,
       body: String(body || '').substring(0, 50)
     })
-    throw err
+
+    // Never leave farmer without a reply, even on internal failures.
+    try {
+      const fallbackPhone = normalizePhoneNumber(String(fromPhone || '').replace('whatsapp:', ''))
+      if (fallbackPhone) {
+        await sendMessage(fallbackPhone, getGenericFailureReply('en'))
+      }
+    } catch (sendErr) {
+      logger.error('Failed to send fallback WhatsApp reply', {
+        error: sendErr.message,
+        from: fromPhone
+      })
+    }
+
+    return { handled: true, conversationId: null, nextStage: null, recovered: true }
   }
 }
 
@@ -393,32 +455,51 @@ function buildFarmerContext(conv) {
 
 async function handleSmartFallback(conv, userMessage) {
   const lang = conv.language || 'gu'
-  const history = await getConversationHistory(conv.id, 6)
-  const farmerContext = buildFarmerContext(conv)
 
-  const systemPrompt = `You are GraamAI, a helpful WhatsApp assistant for rural farmers in India working with Anand Cooperative Bank.
-You help with crop insurance, PM-KISAN, weather, schemes, loans, and farming advice.
-Reply in ${getLanguageName(lang)}. Keep under 200 characters.
-Use simple words, plain text only, no markdown, no asterisks.
-If you cannot answer, ask farmer to call bank officer.
-IMPORTANT: Always end with exactly: 0 for menu | 6 for officer help`
+  // Check if message is a menu number (0-6) — if so, treat as OTHER intent
+  if (/^[0-6]$/.test(String(userMessage).trim())) {
+    return await generateMenuMessage(conv, lang)
+  }
 
-  const userPrompt = `FARMER PROFILE:\n${farmerContext}\n\nRECENT CONVERSATION:\n${history}\n\nFARMER QUESTION: ${userMessage}`
-
+  // It's a free-text query — use intelligent handler with real data
   try {
-    const text = await callGroq(systemPrompt, userPrompt, 220)
-    if (String(text || '').includes('0 for menu | 6 for officer help')) {
-      return String(text || '').trim()
+    const conversationData = {
+      farmer_id: conv.farmer_id,
+      farmer_name: conv.farmer_name,
+      primary_crop: conv.primary_crop,
+      district: conv.district,
+      village: conv.village,
+      soil_type: conv.soil_type || 'loam',
+      irrigation_type: conv.irrigation_type || 'flood',
+      land_area_acres: conv.land_size || 2,
+      vulnerability_score: conv.vulnerability_score || 50,
+      vulnerability_label: conv.vulnerability_label || 'medium',
+      language: lang
     }
-    return `${String(text || '').trim()}\n0 for menu | 6 for officer help`
+
+    const reply = await handleFreeText(userMessage, conversationData)
+    
+    logger.info('Free-text reply generated successfully', {
+      farmerId: conv.farmer_id,
+      messageLength: reply.length,
+      lang
+    })
+
+    return reply
   } catch (err) {
+    logger.error('Free-text handler failed, falling back to generic', {
+      error: err.message,
+      farmerId: conv.farmer_id
+    })
+
+    // Fallback: generic response in farmer's language
     const fallbacks = {
-      gu: '❓ હું સમજ્યો નહિ. 0 ટાઇપ કરો menu માટે અથવા 6 ટાઇપ કરો officer માટે.',
-      hi: '❓ मुझे समझ नहीं आया। 0 टाइप करें menu के लिए या 6 officer के लिए।',
-      en: "❓ I did not understand. Type 0 for menu or 6 for officer.",
-      hinglish: '❓ Samajh nahi aaya. 0 type karo menu ke liye ya 6 officer ke liye.'
+      gu: 'હું સમજ્યો નહિ. 0 ટાઇપ કરો મેનુ માટે અથવા 6 ટાઇપ કરો અધિકારી માટે.',
+      hi: 'मुझे समझ नहीं आया। 0 टाइप करें menu के लिए या 6 officer के लिए।',
+      en: "I don't understand. Type 0 for menu or 6 for officer.",
+      hinglish: 'Samajh nahi aaya. 0 type karo menu ke liye ya 6 officer ke liye.'
     }
-    return fallbacks[lang] || fallbacks.en
+    return fallbacks[lang] || fallbacks.gu
   }
 }
 
@@ -493,14 +574,18 @@ async function handleYesResponse(conv) {
 
 async function generateWelcomeMessage(farmer, alerts, language) {
   try {
-    // Try dynamic generation using Groq
+    // Always use Gujarati by default
+    const lang = language === 'gu' ? 'gu' : 'gu'
     const alertContext = alerts.slice(0, 3)
       .map((a, i) => `${i + 1}. ${a.message || a.reason}`)
       .join('\n');
 
-    const systemPrompt = language === 'gu'
-      ? `You are KhedutMitra, a warm and helpful Gujarati-speaking agricultural advisor. Generate a brief, friendly welcome message for a farmer. Keep it under 120 characters. Mention you have important updates. NO MARKDOWN OR EMOJIS.`
-      : `You are KhedutMitra, a helpful agricultural advisor. Generate a warm welcome in ${language}. Keep under 120 chars. NO MARKDOWN.`;
+    const systemPrompt = `You are KhedutMitra, a warm and helpful Gujarati-speaking agricultural advisor.
+Generate a brief, friendly welcome message for a farmer in Gujarati (ગુજરાતી) ONLY.
+Keep it under 120 characters. 
+Mention you have important updates.
+NO MARKDOWN, NO EMOJIS, NO ENGLISH WORDS.
+Write in proper Gujarati script only.`;
 
     const userPrompt = `Welcome message for farmer ${farmer.name}. Crop: ${farmer.primary_crop}. District: ${farmer.district}. They have ${alerts.length} alerts. Be warm and personalized.`;
 
@@ -509,17 +594,9 @@ async function generateWelcomeMessage(farmer, alerts, language) {
     if (groqResponse) {
       let msg = groqResponse;
       if (alerts.length > 0) {
-        if (language === 'gu') {
-          msg += `\n\n📋 તમારા અલર્ટ્સ:\n${alertContext}`;
-        } else {
-          msg += `\n\nYour Alerts:\n${alertContext}`;
-        }
+        msg += `\n\nતમારા અપડેટ્સ:\n${alertContext}`;
       }
-      if (language === 'gu') {
-        msg += '\n\nકૃપા કરીને 1 લખીને સેવા મેનુ જુઓ.';
-      } else {
-        msg += '\n\nReply 1 for menu.';
-      }
+      msg += '\n\n0 લખો મુખ્ય મેનુ માટે.';
       return msg;
     }
   } catch (err) {
@@ -529,23 +606,19 @@ async function generateWelcomeMessage(farmer, alerts, language) {
     });
   }
 
-  // Fallback to fixed template
-  if (language === 'gu') {
-    const count = alerts.length;
-    const crop = farmer.primary_crop || 'તમારો પાક';
-    let msg = `નમસ્તે ${farmer.name}. હું KhedutMitra છું.\nતમારા ${crop} અને બાબતો માટે ${count} અપડેટ્સ છે.`;
-    if (count > 0) {
-      msg += `\n\n📋 તમારા અલર્ટ્સ:\n`;
-      alerts.slice(0, 3).forEach((alert, i) => {
-        msg += `${i + 1}. ${alert.message || alert.reason}\n`;
-      });
-      if (count > 3) msg += `... અને ${count - 3} વધુ`;
-    }
-    msg += `\n\n1 લખો સેવા માટે.`;
-    return msg;
+  // Fallback to fixed template in Gujarati
+  const count = alerts.length;
+  const crop = farmer.primary_crop || 'તમારો પાક';
+  let msg = `નમસ્તે ${farmer.name}. હું KhedutMitra છું.\nતમારા ${crop} અને બાબતો માટે ${count} અપડેટ્સ છે.`;
+  if (count > 0) {
+    msg += `\n\nતમારા અપડેટ્સ:\n`;
+    alerts.slice(0, 3).forEach((alert, i) => {
+      msg += `${i + 1}. ${alert.message || alert.reason}\n`;
+    });
+    if (count > 3) msg += `... અને ${count - 3} વધુ`;
   }
-
-  return `Hello ${farmer.name}! I have ${alerts.length} important updates for you. Reply 1 to continue.`;
+  msg += `\n\n0 લખો મુખ્ય મેનુ માટے.`;
+  return msg
 }
 
 async function processBotReply(conv, userInput) {
@@ -614,7 +687,14 @@ async function handleMainMenu(conv, input, language) {
 }
 
 async function generateMenuMessage(conv, language) {
-  const options = [
+  // Use fixed menu structure instead of dynamic
+  const menuContent = getFixedMenuContent(language)
+  return menuContent
+}
+
+async function generateDynamicMenuOptions(conv, language) {
+  // Deprecated: Use getFixedMenuContent instead for consistent menu
+  const fallback = [
     getMenuOption('insurance', language),
     getMenuOption('pmkisan', language),
     getMenuOption('weather', language),
@@ -622,28 +702,12 @@ async function generateMenuMessage(conv, language) {
     getMenuOption('profile', language),
     getMenuOption('officer', language)
   ]
-
-  const numbered = options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')
-  const header = await generateDynamicMenuHeader(conv, language)
-  return `${header}\n\n${numbered}\n\n0. ${getMenuLabel(language)}\n${getLanguageChangeHelp(language)}`
+  return fallback
 }
 
 async function generateDynamicMenuHeader(conv, language) {
-  const fallback = getMenuHeader(language)
-
-  try {
-    const systemPrompt = `You are KhedutMitra. Write one short WhatsApp menu header in ${getLanguageName(language)} for a farmer. Keep it under 90 characters. Friendly, clear, and action-oriented. Plain text only.`
-    const userPrompt = `Farmer name: ${conv.farmer_name || 'Farmer'}. Crop: ${conv.primary_crop || 'N/A'}. District: ${conv.district || 'N/A'}. Ask them to choose one service by number.`
-    const text = await callGroq(systemPrompt, userPrompt, 120)
-    if (text && text.trim()) return text.trim()
-  } catch (err) {
-    logger.warn('Dynamic menu header failed, using fallback', {
-      error: err.message,
-      action: 'whatsapp.menu.header.fallback'
-    })
-  }
-
-  return fallback
+  // Deprecated: Use getFixedMenuContent instead for consistent menu
+  return getMenuHeader(language)
 }
 
 async function handleMenuSelection(conv, input, language) {
@@ -670,19 +734,22 @@ async function handleMenuSelection(conv, input, language) {
 
 async function generateStageIntro(stage, conv, language) {
   try {
-    // Try dynamic generation with Groq based on stage and farmer context
+    // Always use Gujarati
     const stageDescriptions = {
-      insurance_flow: 'crop insurance (PMFBY) information and how to apply',
-      pmkisan_flow: 'PM-KISAN scheme benefits and how to enroll',
-      weather_flow: 'weather forecast and farming recommendations',
-      scheme_flow: 'government schemes and loans available for farmers'
+      insurance_flow: 'પાક વીમા (PMFBY) માહિતી અને કેવી રીતે અરજ કરવી',
+      pmkisan_flow: 'PM-KISAN યોજનાના ફાયદા અને કેવી રીતે નોંધણી કરવી',
+      weather_flow: 'આબોહવા પૂર્વાનુમાન અને ખેતી ની ભલામણો',
+      scheme_flow: 'સરકારી યોજનાઓ અને લોન જે ખેડૂતો માટે ઉપલબ્ધ છે'
     };
 
-    const systemPrompt = language === 'gu'
-      ? `You are KhedutMitra, a Gujarati-speaking agricultural advisor. Generate helpful, specific advice about ${stageDescriptions[stage] || stage} for a farmer. Keep it under 150 chars. Be practical and actionable. NO MARKDOWN.`
-      : `Generate helpful advice about ${stageDescriptions[stage] || stage} in ${language}. Keep under 150 chars. Be practical and specific. NO MARKDOWN.`;
+    const systemPrompt = `You are KhedutMitra, a Gujarati-speaking agricultural advisor.
+Generate helpful, specific advice about ${stageDescriptions[stage] || stage} for a farmer in Gujarati (ગુજરાતી).
+Keep it under 150 characters.
+Be practical and actionable.
+NO MARKDOWN, NO ENGLISH WORDS EXCEPT PROPER NAMES (PMFBY, PM-KISAN, KCC).
+Use ONLY Gujarati script.`;
 
-    const userPrompt = `Farmer grows ${conv.primary_crop || 'crops'}, in ${conv.district || 'rural area'}. Provide specific ${stageDescriptions[stage] || 'advice'} for their situation.`;
+    const userPrompt = `Farmer grows ${conv.primary_crop || 'પાક'}, in ${conv.district || 'ગુજરાતમાં'}. Provide specific ${stageDescriptions[stage] || 'સલાહ'} for their situation.`;
 
     const groqResponse = await callGroq(systemPrompt, userPrompt, 250);
     if (groqResponse) return groqResponse;
@@ -690,31 +757,204 @@ async function generateStageIntro(stage, conv, language) {
     logger.warn('Groq stage intro failed', { stage, error: err.message });
   }
 
-  // Fallback to fixed templates
-  if (language === 'gu') {
-    if (stage === 'insurance_flow') {
-      return `વીમા સેવા (PMFBY):\n• પ્રીમિયમ: રૂ. 680+\n• જરૂર: આધાર, 7/12, બેંક\n• આવેદન કરો શાખા/CSC.`;
-    }
-    if (stage === 'pmkisan_flow') {
-      return `PM-KISAN:\n• રૂ. 2000 હપ્તો\n• eKYC બેંક ચકાસો\n• હેલ્પલાઇન: 155261.`;
-    }
-    if (stage === 'weather_flow') {
-      const crop = conv.primary_crop || 'આપનો પાક';
-      return `હવામાન - ${crop}:\n• આગામી સપ્તાહ ઓછો વરસાદ\n• સિંચાઈ યોજના બદલો\n• જમીન આવરણ પદ્ધતિ અપનાવો.`;
-    }
-    if (stage === 'scheme_flow') {
-      return `સરકારી યોજનાઓ:\n• KCC: ઓછી વ્યાજે લોન\n• Soil Card: જમીન પરીક્ષણ\n• PM-KISAN: સીધો લાભ.`;
-    }
-    return `સેવા માટે કૃપા આધાર અને બેંક તૈયાર કરો.`;
+  return await generateApiBackedStageIntro(stage, conv, language)
+}
+
+async function generateApiBackedStageIntro(stage, conv, language) {
+  const profile = await getFarmerSnapshotForFlows(conv)
+  const lang = language || conv.language || 'gu'
+
+  if (stage === 'insurance_flow') {
+    return buildInsuranceDynamicMessage(profile, lang)
   }
 
-  const fallback = {
-    insurance_flow: 'Crop insurance info: Visit your bank branch with Aadhaar, land record, and passbook.',
-    pmkisan_flow: 'PM-KISAN: Check your eKYC. Installment helpline: 155261.',
-    weather_flow: `Weather forecast for ${conv.primary_crop}: Low rainfall expected. Adjust irrigation.`,
-    scheme_flow: 'Government schemes: KCC loans, Soil Health Card, PM-KISAN available.'
+  if (stage === 'pmkisan_flow') {
+    return buildPmKisanDynamicMessage(profile, lang)
   }
-  return fallback[stage] || getMenuMessage(language)
+
+  if (stage === 'weather_flow') {
+    return await buildWeatherDynamicMessage(profile, lang)
+  }
+
+  if (stage === 'scheme_flow') {
+    return await buildSchemeDynamicMessage(profile, lang)
+  }
+
+  return getMenuMessage(lang)
+}
+
+async function getFarmerSnapshotForFlows(conv) {
+  const result = await pool.query(
+    `SELECT f.id,
+            f.name,
+            f.district,
+            f.village,
+          to_jsonb(f)->>'state' AS state,
+            f.latitude,
+            f.longitude,
+            to_jsonb(f)->>'loan_type' AS loan_type,
+            (to_jsonb(f)->>'loan_due_date')::date AS loan_due_date,
+            COALESCE((to_jsonb(f)->>'has_crop_insurance')::boolean, false) AS has_crop_insurance,
+            (to_jsonb(f)->>'insurance_expiry_date')::date AS insurance_expiry_date,
+            COALESCE((to_jsonb(f)->>'pm_kisan_enrolled')::boolean, false) AS pm_kisan_enrolled,
+            (
+              SELECT c.name
+              FROM farmer_crops fc
+              JOIN crops c ON c.id = fc.crop_id
+              WHERE fc.farmer_id = f.id
+              ORDER BY fc.created_at DESC
+              LIMIT 1
+            ) AS primary_crop
+     FROM farmers f
+     WHERE f.id = $1
+     LIMIT 1`,
+    [conv.farmer_id]
+  )
+
+  return result.rows[0] || {
+    id: conv.farmer_id,
+    name: conv.farmer_name || 'Farmer',
+    district: conv.district || null,
+    village: conv.village || null,
+    state: null,
+    latitude: null,
+    longitude: null,
+    loan_type: conv.loan_type || null,
+    loan_due_date: conv.loan_due_date || null,
+    has_crop_insurance: conv.has_crop_insurance || false,
+    insurance_expiry_date: conv.insurance_expiry_date || null,
+    pm_kisan_enrolled: conv.pm_kisan_enrolled || false,
+    primary_crop: conv.primary_crop || null
+  }
+}
+
+function buildInsuranceDynamicMessage(profile, lang) {
+  const crop = profile.primary_crop || 'crop'
+  const due = profile.insurance_expiry_date ? getDaysUntil(profile.insurance_expiry_date) : null
+
+  if (profile.has_crop_insurance) {
+    if (lang === 'gu') {
+      return `વીમા સ્થિતિ અપડેટ: ${crop}\nતમારો પાક વીમો active છે. Expiry ${formatDate(profile.insurance_expiry_date)} (અંદાજે ${due} દિવસ).\nRenewal માટે શાખામાં આધાર અને 7/12 લાવો.`
+    }
+    if (lang === 'hi') {
+      return `बीमा अपडेट: ${crop}\nआपका फसल बीमा active है। Expiry ${formatDate(profile.insurance_expiry_date)} (लगभग ${due} दिन)।\nRenewal के लिए आधार और 7/12 के साथ शाखा जाएं।`
+    }
+    return `Insurance update for ${crop}: your policy is active till ${formatDate(profile.insurance_expiry_date)} (about ${due} days). Keep Aadhaar and land record ready for renewal.`
+  }
+
+  if (lang === 'gu') {
+    return `વીમા સલાહ: ${crop}\nહાલમાં પાક વીમો નોંધાયેલો નથી. PMFBY માટે આધાર, બેંક પાસબુક અને 7/12 સાથે અરજી કરો.`
+  }
+  if (lang === 'hi') {
+    return `बीमा सलाह: ${crop}\nफिलहाल फसल बीमा दर्ज नहीं है। PMFBY के लिए आधार, बैंक पासबुक और 7/12 के साथ आवेदन करें।`
+  }
+  return `Insurance advice for ${crop}: no active crop insurance found. Apply under PMFBY with Aadhaar, bank passbook, and land record.`
+}
+
+function buildPmKisanDynamicMessage(profile, lang) {
+  const district = profile.district || 'your district'
+
+  if (profile.pm_kisan_enrolled) {
+    if (lang === 'gu') {
+      return `PM-KISAN સ્થિતિ: નોંધાયેલા છો.\n${district} માટે આગામી હપ્તા પહેલાં eKYC અને bank account seed check કરો.\nStatus pmkisan.gov.in પર ચકાસો.`
+    }
+    if (lang === 'hi') {
+      return `PM-KISAN स्थिति: आप enrolled हैं।\n${district} में अगली किस्त से पहले eKYC और bank seed check करें।\nStatus pmkisan.gov.in पर देखें।`
+    }
+    return `PM-KISAN status: enrolled. Before next installment for ${district}, verify eKYC and bank seeding. Check status on pmkisan.gov.in.`
+  }
+
+  if (lang === 'gu') {
+    return `PM-KISAN સલાહ: નોંધણી મળતી નથી.\nઆધાર લિંક bank account અને જમીન દસ્તાવેજ સાથે CSC/શાખામાં નોંધણી કરો.`
+  }
+  if (lang === 'hi') {
+    return `PM-KISAN सलाह: enrollment नहीं मिला।\nआधार linked bank account और जमीन दस्तावेज के साथ CSC/शाखा में रजिस्ट्रेशन करें।`
+  }
+  return 'PM-KISAN advice: enrollment not found. Register at CSC/bank with Aadhaar-linked bank account and land records.'
+}
+
+async function buildWeatherDynamicMessage(profile, lang) {
+  const district = profile.district
+  let weather = null
+
+  if (district) {
+    weather = await getWeather(district)
+  }
+
+  const isExpired = weather?.valid_until ? new Date(weather.valid_until) < new Date() : true
+  if ((!weather || isExpired) && district && profile.latitude && profile.longitude) {
+    try {
+      weather = await fetchWeatherForDistrict(district, profile.latitude, profile.longitude, profile.state || null)
+    } catch (err) {
+      logger.warn('Weather API fetch failed for WhatsApp flow', {
+        district,
+        farmerId: profile.id,
+        error: err.message
+      })
+    }
+  }
+
+  const crop = profile.primary_crop || 'crop'
+  if (!weather) {
+    if (lang === 'gu') {
+      return `હવામાન અપડેટ હાલ મળ્યું નથી. ${crop} માટે સિંચાઈ હળવી રાખો અને કીટ નિયંત્રણ પર ધ્યાન આપો.`
+    }
+    if (lang === 'hi') {
+      return `मौसम अपडेट अभी उपलब्ध नहीं है। ${crop} के लिए सिंचाई संतुलित रखें और कीट नियंत्रण पर ध्यान दें।`
+    }
+    return `Weather data is not available right now. For ${crop}, keep irrigation balanced and monitor pest activity.`
+  }
+
+  const temp = Number(weather.temperature || 0).toFixed(1)
+  const rain = Number(weather.rainfall || 0).toFixed(1)
+  const humidity = Number(weather.humidity || 0).toFixed(0)
+  const advisory = Number(rain) > 3
+    ? 'reduce irrigation and improve drainage'
+    : Number(temp) >= 34
+      ? 'irrigate in early morning and use mulch'
+      : 'follow normal irrigation schedule'
+
+  if (lang === 'gu') {
+    return `હવામાન ${district || 'સ્થાનિક'}: તાપમાન ${temp}°C, વરસાદ ${rain}mm, ભેજ ${humidity}%.
+${crop} માટે સલાહ: ${advisory}.`
+  }
+  if (lang === 'hi') {
+    return `मौसम ${district || 'स्थानीय'}: तापमान ${temp}°C, वर्षा ${rain}mm, नमी ${humidity}%.
+${crop} के लिए सलाह: ${advisory}.`
+  }
+  return `Weather ${district || 'local'}: temp ${temp}°C, rain ${rain}mm, humidity ${humidity}%. Advisory for ${crop}: ${advisory}.`
+}
+
+async function buildSchemeDynamicMessage(profile, lang) {
+  try {
+    await schemesService.matchFarmer(profile.id)
+    const matchesData = await schemesService.getMatchesByFarmer(profile.id)
+    const matches = matchesData.matches || []
+    const top = matches.slice(0, 2).map((m) => m.scheme_name).filter(Boolean)
+
+    if (top.length > 0) {
+      if (lang === 'gu') {
+        return `તમારા માટે યોજના મેળ: ${top.join(', ')}. અરજી માટે દસ્તાવેજ તૈયાર રાખો: આધાર, બેંક પાસબુક, જમીન પુરાવો.`
+      }
+      if (lang === 'hi') {
+        return `आपके लिए योजना मैच: ${top.join(', ')}. आवेदन हेतु दस्तावेज तैयार रखें: आधार, बैंक पासबुक, भूमि प्रमाण।`
+      }
+      return `Top schemes matched for you: ${top.join(', ')}. Keep Aadhaar, bank passbook, and land proof ready to apply.`
+    }
+  } catch (err) {
+    logger.warn('Scheme match fetch failed for WhatsApp flow', {
+      farmerId: profile.id,
+      error: err.message
+    })
+  }
+
+  if (lang === 'gu') {
+    return 'હાલમાં યોજના મૅચ મળ્યું નથી. KCC, PM-KISAN અને Soil Health Card માટે શાખામાં ચકાસો.'
+  }
+  if (lang === 'hi') {
+    return 'अभी कोई योजना मैच नहीं मिला। KCC, PM-KISAN और Soil Health Card के लिए शाखा में जांच करें।'
+  }
+  return 'No scheme match found right now. Please check KCC, PM-KISAN, and Soil Health Card at your bank branch.'
 }
 
 async function handleInsuranceFlow(conv, input, language) {
@@ -763,10 +1003,11 @@ async function handleSchemeFlow(conv, input, language) {
 
 async function handleProfileView(conv, input, language) {
   const lang = language || conv.language || 'gu'
+  const profile = await getFarmerProfileForChat(conv)
 
-  const systemPrompt = `You are GraamAI bot. Generate a farmer profile summary message in ${getLanguageName(lang)}. Keep it under 250 characters. Use simple words and plain text only.`
+  const systemPrompt = `You are GraamAI bot. Generate a farmer profile summary message in ${getLanguageName(lang)}. Keep it under 260 characters. Use simple words and plain text only.`
 
-  const userPrompt = `Farmer details:\nName: ${conv.farmer_name || 'Farmer'}\nVillage: ${conv.village || 'N/A'}, ${conv.district || 'N/A'}\nCrop: ${conv.primary_crop || 'N/A'}\nLand: ${conv.land_size || 'N/A'} acres\nVulnerability score: ${conv.vulnerability_score || 'N/A'}/100 (${conv.vulnerability_label || 'unknown'})\nInsurance: ${conv.has_crop_insurance ? 'Yes' : 'No'}\nPM-KISAN: ${conv.pm_kisan_enrolled ? 'Enrolled' : 'Not enrolled'}\nLoan: ${conv.loan_type || 'None'}\nEnd with top 1 risk or action.`
+  const userPrompt = `Farmer details:\nName: ${profile.name || 'Farmer'}\nVillage: ${profile.village || 'N/A'}, ${profile.district || 'N/A'}\nCrop: ${profile.primary_crop || 'N/A'}\nLand: ${profile.land_size || 'N/A'} acres\nVulnerability score: ${profile.vulnerability_score || 'N/A'}/100 (${profile.vulnerability_label || 'unknown'})\nInsurance: ${profile.has_crop_insurance ? 'Yes' : 'No'}\nPM-KISAN: ${profile.pm_kisan_enrolled ? 'Enrolled' : 'Not enrolled'}\nLoan: ${profile.loan_type || 'None'}\nEnd with top 1 risk or action.`
 
   let message
   try {
@@ -775,7 +1016,7 @@ async function handleProfileView(conv, input, language) {
       throw new Error('Empty Groq response')
     }
   } catch (err) {
-    message = getProfileNotFoundMsg(lang)
+    message = await formatProfileMessage(profile, lang)
   }
 
   const finalMessage = `${String(message || '').trim()}\n0 for menu | 6 for officer help`
@@ -813,18 +1054,108 @@ async function formatProfileMessage(farmer, language) {
   return `Your Profile\nName: ${farmer.name}\nDistrict: ${farmer.district}\nVillage: ${farmer.village || 'N/A'}\nLand: ${farmer.land_size || 'N/A'} acres\nSoil: ${farmer.soil_type || 'N/A'}\nIncome: ₹${farmer.annual_income || 'N/A'}`
 }
 
+async function getFarmerProfileForChat(conv) {
+  const result = await pool.query(
+    `SELECT f.name,
+            f.district,
+            f.village,
+            f.land_size,
+            f.annual_income,
+            to_jsonb(f)->>'soil_type' AS soil_type,
+            to_jsonb(f)->>'loan_type' AS loan_type,
+            COALESCE((to_jsonb(f)->>'has_crop_insurance')::boolean, false) AS has_crop_insurance,
+            COALESCE((to_jsonb(f)->>'pm_kisan_enrolled')::boolean, false) AS pm_kisan_enrolled,
+            (
+              SELECT c.name
+              FROM farmer_crops fc
+              JOIN crops c ON c.id = fc.crop_id
+              WHERE fc.farmer_id = f.id
+              ORDER BY fc.created_at DESC
+              LIMIT 1
+            ) AS primary_crop,
+            (
+              SELECT fr.score
+              FROM fvi_records fr
+              WHERE fr.farmer_id = f.id
+              ORDER BY fr.created_at DESC
+              LIMIT 1
+            ) AS vulnerability_score,
+            (
+              SELECT fr.risk_level
+              FROM fvi_records fr
+              WHERE fr.farmer_id = f.id
+              ORDER BY fr.created_at DESC
+              LIMIT 1
+            ) AS vulnerability_label
+     FROM farmers f
+     WHERE f.id = $1
+     LIMIT 1`,
+    [conv.farmer_id]
+  )
+
+  if (result.rows[0]) {
+    return result.rows[0]
+  }
+
+  return {
+    name: conv.farmer_name || 'Farmer',
+    district: conv.district || null,
+    village: conv.village || null,
+    land_size: conv.land_size || null,
+    annual_income: conv.annual_income || null,
+    primary_crop: conv.primary_crop || null,
+    vulnerability_score: conv.vulnerability_score || null,
+    vulnerability_label: conv.vulnerability_label || null,
+    has_crop_insurance: conv.has_crop_insurance || false,
+    pm_kisan_enrolled: conv.pm_kisan_enrolled || false,
+    loan_type: conv.loan_type || null,
+    soil_type: null
+  }
+}
+
+function resolveMenuSelectionIntent(text) {
+  const normalized = String(text || '').trim().toLowerCase()
+  const clean = normalized.replace(/[!?.:,;]/g, '').trim()
+  if (!clean) return null
+
+  if (['1', 'one', '૧', 'एक'].includes(clean)) return INTENTS.INSURANCE
+  if (['2', 'two', '૨', 'दो'].includes(clean)) return INTENTS.PMKISAN
+  if (['3', 'three', '૩', 'तीन'].includes(clean)) return INTENTS.WEATHER
+  if (['4', 'four', '૪', 'चार'].includes(clean)) return INTENTS.SCHEME
+  if (['5', 'five', '૫', 'पांच'].includes(clean)) return INTENTS.PROFILE
+  if (['6', 'six', '૬', 'छह'].includes(clean)) return INTENTS.OFFICER
+  if (['0', 'menu', 'main menu', 'back'].includes(clean)) return INTENTS.MENU
+
+  if (clean.includes('insurance') || clean.includes('bima') || clean.includes('વીમા') || clean.includes('बीमा')) return INTENTS.INSURANCE
+  if (clean.includes('pmkisan') || clean.includes('pm kisan') || clean.includes('किसान')) return INTENTS.PMKISAN
+  if (clean.includes('weather') || clean.includes('mausam') || clean.includes('હવામાન')) return INTENTS.WEATHER
+  if (clean.includes('scheme') || clean.includes('yojana') || clean.includes('યોજના')) return INTENTS.SCHEME
+  if (clean.includes('profile') || clean.includes('પ્રોફાઇલ') || clean.includes('प्रोफाइल')) return INTENTS.PROFILE
+  if (clean.includes('officer') || clean.includes('contact') || clean.includes('call') || clean.includes('અધિકારી')) return INTENTS.OFFICER
+
+  return null
+}
+
 async function handleOfficerConnect(conv, input, language) {
   const lang = language || conv.language || 'gu'
-  await generateAlert({
-    farmerId: conv.farmer_id,
-    organizationId: conv.organization_id,
-    alertType: ALERT_TYPES.OFFICER_CALLBACK,
-    language: lang,
-    contextData: {
-      farmerConcern: input || 'Farmer requested officer callback via WhatsApp'
-    },
-    sendWhatsAppMessage: false
-  })
+  try {
+    await generateAlert({
+      farmerId: conv.farmer_id,
+      organizationId: conv.organization_id,
+      alertType: ALERT_TYPES.OFFICER_CALLBACK,
+      language: lang,
+      contextData: {
+        farmerConcern: input || 'Farmer requested officer callback via WhatsApp'
+      },
+      sendWhatsAppMessage: false
+    })
+  } catch (err) {
+    logger.warn('Officer callback alert generation failed, returning confirmation anyway', {
+      farmerId: conv.farmer_id,
+      error: err.message,
+      action: 'whatsapp.officer.callback.fallback'
+    })
+  }
 
   const message = `${getOfficerConfirmation(lang)}\n0 for menu | 6 for officer help`
   if (typeof input !== 'undefined') {
@@ -866,6 +1197,56 @@ function getMenuOption(type, lang) {
     officer: { gu: 'અધિકારી સાથે વાત', hi: 'Officer Se Baat', en: 'Talk to officer', hinglish: 'Officer Se Baat' },
   }
   return opts[type]?.[lang] || opts[type]?.en || type
+}
+
+function getFixedMenuContent(lang) {
+  const menus = {
+    gu: `નમસ્તે! કઈ સેવા જોઈએ? કૃપા કરીને નંબર લખો:
+
+1. પાક વીમા માર્ગદર્શન
+2. PM-KISAN
+3. હવામાન અને પાક સલાહ
+4. સરકારી યોજનાઓ
+5. મારી પ્રોફાઇલ જુઓ
+6. અધિકારી સાથે વાત
+
+0. મુખ્ય મેનુ
+ભાષા બદલવા GU / HI / EN લખો.`,
+    hi: `नमस्ते! किस सेवा की जरूरत है? कृपया नंबर लिखें:
+
+1. फसल बीमा मार्गदर्शन
+2. PM-KISAN
+3. मौसम और फसल सलाह
+4. सरकारी योजनाएं
+5. मेरी प्रोफाइल देखें
+6. अधिकारी से बात करें
+
+0. मुख्य मेनू
+भाषा बदलने के लिए GU / HI / EN लिखें।`,
+    en: `Hello! What service do you need? Please type a number:
+
+1. Crop insurance guidance
+2. PM-KISAN
+3. Weather and crop advice
+4. Government schemes
+5. View my profile
+6. Talk to officer
+
+0. Main menu
+To change language, type GU / HI / EN.`,
+    hinglish: `Namaste! Kis service ki zaroorat hai? Kripya number likho:
+
+1. Fasal Bima Guidance
+2. PM-KISAN
+3. Mausam aur Fasal Salah
+4. Sarkaari Yojnaye
+5. Meri Profile Dekho
+6. Officer Se Baat Karo
+
+0. Main Menu
+Language badalne ke liye GU / HI / EN likho.`
+  }
+  return menus[lang] || menus.en
 }
 
 function getMenuHeader(lang) {
@@ -942,6 +1323,145 @@ function getOfficerConfirmation(lang) {
 
 function getNoSessionMessage() {
   return 'Hello! Please ask your bank to send you a KhedutMitra WhatsApp message to start. | Namaste! Bank se kahen KhedutMitra WhatsApp send kare.'
+}
+
+function detectProjectTopic(userMessage) {
+  const text = String(userMessage || '').toLowerCase()
+  if (!text.trim()) return 'offtopic'
+
+  const has = (arr) => arr.some((k) => text.includes(k))
+
+  if (has(['weather', 'mausam', 'હવામાન', 'rain', 'વરસાદ', 'बारिश', 'temperature'])) return 'weather'
+  if (has(['insurance', 'bima', 'વીમા', 'बीमा', 'pmfby'])) return 'insurance'
+  if (has(['pmkisan', 'pm kisan', 'किसान', 'હપ્તો'])) return 'pmkisan'
+  if (has(['scheme', 'yojana', 'યોજના', 'subsidy'])) return 'scheme'
+  if (has(['crop', 'soil', 'પાક', 'માટી', 'फसल', 'मिट्टी', 'disease', 'રોગ'])) return 'cropsoil'
+  if (has(['loan', 'finance', 'credit', 'bank', 'kcc', 'લોન', 'बैंक'])) return 'finance'
+
+  return 'offtopic'
+}
+
+function buildCropSoilDynamicMessage(profile, lang) {
+  const crop = profile.primary_crop || 'crop'
+  const district = profile.district || 'your area'
+
+  if (lang === 'gu') {
+    return `${crop} માટે સલાહ (${district}): જમીન ભેજ જાળવો, 5-7 દિવસે પાક નિરીક્ષણ કરો, અને રોગના પ્રારંભિક લક્ષણો દેખાય તો ફોટો મોકલો.`
+  }
+  if (lang === 'hi') {
+    return `${crop} के लिए सलाह (${district}): मिट्टी की नमी बनाए रखें, 5-7 दिन में फसल निरीक्षण करें, और रोग के शुरुआती लक्षण पर फोटो भेजें।`
+  }
+  return `Advice for ${crop} in ${district}: maintain soil moisture, inspect crop every 5-7 days, and share a crop photo if disease symptoms appear.`
+}
+
+function getOutOfScopeMessage(lang) {
+  return {
+    gu: 'હું કૃષિ, હવામાન, પાક, માટી, વીમા, યોજના અને ખેડૂત નાણાંકીય મદદ વિષય પર જ મદદ કરું છું. કૃપા કરીને સંબંધિત પ્રશ્ન પૂછો.\n0 for menu | 6 for officer help',
+    hi: 'मैं केवल कृषि, मौसम, फसल, मिट्टी, बीमा, योजना और किसान वित्त से जुड़े सवालों में मदद करता हूँ। कृपया संबंधित प्रश्न पूछें।\n0 for menu | 6 for officer help',
+    en: 'I can help only with farming, weather, crop/soil, insurance, schemes, and farmer finance topics. Please ask a related question.\n0 for menu | 6 for officer help',
+    hinglish: 'Main sirf farming, weather, crop/soil, insurance, schemes aur farmer finance topics mein help karta hoon. Related question pucho.\n0 for menu | 6 for officer help'
+  }[lang] || 'I can help only with farming and farmer finance topics.\n0 for menu | 6 for officer help'
+}
+
+function getGenericFailureReply(lang) {
+  return {
+    gu: 'માફ કરશો, હાલમાં જવાબમાં સમસ્યા આવી. કૃપા કરીને ફરી પ્રયત્ન કરો અથવા 0 મેનુ / 6 અધિકારી મદદ લખો.',
+    hi: 'माफ कीजिए, अभी जवाब देने में समस्या हुई। कृपया फिर कोशिश करें या 0 मेनू / 6 अधिकारी मदद लिखें।',
+    en: 'Sorry, we had a temporary issue replying. Please try again or type 0 for menu / 6 for officer help.',
+    hinglish: 'Sorry, reply mein temporary issue aaya. Dobara try karo ya 0 menu / 6 officer help type karo.'
+  }[lang] || 'Sorry, temporary issue. Type 0 for menu / 6 for officer help.'
+}
+
+async function closeConversation(conversationId, reason = 'stop') {
+  await pool.query(
+    `UPDATE whatsapp_conversations
+     SET is_active = false,
+         current_stage = 'done',
+         session_expires_at = NOW(),
+         updated_at = NOW(),
+         context = context || $2::jsonb
+     WHERE id = $1`,
+    [conversationId, JSON.stringify({ closed_by_farmer: true, close_reason: reason, closed_at: new Date().toISOString() })]
+  )
+}
+
+function getStopConfirmation(lang) {
+  return {
+    gu: 'બરાબર. આ ચેટ બંધ કરી દીધી છે. ફરી શરૂ કરવા HI અથવા HELP લખો.',
+    hi: 'ठीक है। यह चैट बंद कर दी गई है। फिर शुरू करने के लिए HI या HELP लिखें।',
+    en: 'Okay, this chat is closed now. Send HI or HELP anytime to start again.',
+    hinglish: 'Thik hai, chat band kar di gayi hai. Dobara shuru karne ke liye HI ya HELP bhejo.'
+  }[lang] || 'Chat closed. Send HI or HELP to start again.'
+}
+
+function isSelfStartMessage(text) {
+  const normalized = String(text || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  const selfStartKeywords = new Set([
+    'hi',
+    'hii',
+    'hiii',
+    'hello',
+    'hey',
+    'help',
+    'start',
+    'menu',
+    'namaste',
+    'hello ji',
+    'नमस्ते',
+    'नमस्कार',
+    'मदद',
+    'हेल्प',
+    'જય શ્રી કૃષ્ણ',
+    'નમસ્તે',
+    'મદદ'
+  ])
+
+  if (selfStartKeywords.has(normalized)) return true
+  if (normalized.length <= 10 && selfStartKeywords.has(normalized.replace(/[!?.]/g, ''))) return true
+
+  return false
+}
+
+async function findFarmerByPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  const last10 = digits.slice(-10)
+  if (!last10) return null
+
+  const result = await pool.query(
+    `SELECT f.id,
+            f.name,
+            COALESCE(to_jsonb(f)->>'organization_id', to_jsonb(f)->>'institution_id') AS organization_id,
+            f.language,
+            f.preferred_language,
+            f.district,
+            f.village,
+            (
+              SELECT c.name
+              FROM farmer_crops fc
+              JOIN crops c ON c.id = fc.crop_id
+              WHERE fc.farmer_id = f.id
+              ORDER BY fc.created_at DESC
+              LIMIT 1
+            ) AS primary_crop
+     FROM farmers f
+     WHERE right(regexp_replace(COALESCE(f.phone, ''), '\\D', '', 'g'), 10) = $1
+     LIMIT 1`,
+    [last10]
+  )
+
+  return result.rows[0] || null
+}
+
+function getSelfStartWelcomeMessage(lang, farmerName) {
+  const name = farmerName || 'Farmer'
+  return {
+    gu: `નમસ્તે ${name}! હું KhedutMitra છું. મદદ માટે નીચે મેનુમાંથી નંબર પસંદ કરો.`,
+    hi: `नमस्ते ${name}! मैं KhedutMitra हूं। मदद के लिए नीचे मेनू से नंबर चुनें।`,
+    en: `Hello ${name}! I am KhedutMitra. Choose a number from the menu below for help.`,
+    hinglish: `Namaste ${name}! Main KhedutMitra hoon. Help ke liye neeche menu se number chuno.`
+  }[lang] || `Hello ${name}! I am KhedutMitra. Choose a number from the menu below for help.`
 }
 
 module.exports = {

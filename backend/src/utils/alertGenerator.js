@@ -9,28 +9,39 @@ async function generateAlert({
   alertType,
   language = 'gu',
   contextData = {},
-  sendWhatsAppMessage = false
+  sendWhatsAppMessage = true
 }) {
   const normalizedType = isSupportedAlertType(alertType)
     ? alertType
     : ALERT_TYPES.CUSTOM
 
   const farmer = await getFarmerProfile(farmerId)
-  const lang = 'gu'
+  const lang = 'gu' // Always Gujarati for all alerts
   const orgId = organizationId || farmer.organization_id || null
 
   const farmerContext = buildFarmerContext(farmer, contextData)
   const alertInstruction = buildAlertInstruction(normalizedType, farmer, contextData)
-  const langName = getLanguageName(lang)
+  const langName = 'Gujarati' // Enforce Gujarati
 
   const systemPrompt = buildSystemPrompt(langName)
   const userPrompt = buildUserPrompt(farmerContext, normalizedType, alertInstruction, langName)
 
-  const rawResult = await callGroq(systemPrompt, userPrompt, 1200)
-  if (!rawResult || !String(rawResult).trim()) {
-    throw new Error('Groq returned empty alert content')
+  let rawResult = null
+  let aiGenerated = true
+  try {
+    rawResult = await callGroq(systemPrompt, userPrompt, 1200)
+  } catch (err) {
+    aiGenerated = false
+    console.error(`Groq alert generation failed for farmer ${farmerId}:`, err.message)
   }
-  const parsed = parseAlertResponse(rawResult)
+
+  const parsed = (!rawResult || !String(rawResult).trim())
+    ? buildFallbackAlertContent(normalizedType, farmer, contextData)
+    : parseAlertResponse(rawResult)
+
+  if (!rawResult || !String(rawResult).trim()) {
+    aiGenerated = false
+  }
 
   const savedAlert = await saveAlertToDB({
     farmerId,
@@ -42,7 +53,8 @@ async function generateAlert({
     voiceNoteScript: parsed.voiceNoteScript,
     reason: parsed.reason,
     priority: ALERT_PRIORITY_MAP[normalizedType] || ALERT_PRIORITIES.MEDIUM,
-    contextData
+    contextData,
+    aiGenerated
   })
 
   let whatsappSid = null
@@ -87,16 +99,27 @@ function buildSystemPrompt(langName) {
   return `You are GraamAI, a rural financial advisor for cooperative banks in Gujarat, India.
 You generate detailed, actionable WhatsApp alerts that are sent directly to farmers.
 
-STRICT RULES:
-- Write ONLY in ${langName}. Zero English words unless it is a proper name (PM-KISAN, PMFBY, Aadhaar are okay).
-- Plain text ONLY. Zero markdown. Zero asterisks. Zero bullet symbols.
-  Use numbered lists like: "1. Step one" on a new line.
+LANGUAGE: You MUST write ONLY in Gujarati (ગુજરાતી). 
+ABSOLUTELY ZERO English words except proper names (PM-KISAN, PMFBY, Aadhaar, KCC, CSC).
+Every single word must be in Gujarati script (ગુજરાતી).
+
+STRICT FORMATTING RULES:
+- Plain text ONLY. Zero markdown. Zero asterisks (*). Zero bullet symbols (•, -, ◦).
+- Use numbered lists like: "1. પ્રથમ પગલું" on a new line.
 - Use simple words a farmer with Class 5 education can understand.
-- Warm and helpful tone.
-- NEVER say "invalid" or "error".
+- Warm and helpful tone. Be supportive and encouraging.
+- NEVER say "invalid" (અમાન્ય) or "error" (ભૂલ).
 - Never include farmer name in the message.
-- Never mention officer or admin in the message.
-- Every message must be immediately actionable.`
+- Never mention officer (અધિકારી) or admin (વ્યવસ્થાપક) in the message.
+- Every message must be immediately actionable.
+- Use (...) for natural pauses in voice scripts.
+
+OUTPUT STRUCTURE:
+Generate exactly 3 sections separated by "---SECTION_NAME---":
+1. WHATSAPP_MESSAGE (max 900 chars in Gujarati)
+2. DASHBOARD_MESSAGE (max 300 chars in Gujarati)
+3. VOICE_NOTE_SCRIPT (max 110 words, conversational Gujarati)
+4. REASON (one English line for internal tracking)`
 }
 
 function buildUserPrompt(farmerContext, alertType, alertInstruction, langName) {
@@ -348,6 +371,36 @@ function deriveReasonFallback(text) {
   return compact.slice(0, 160)
 }
 
+function buildFallbackAlertContent(alertType, farmer, contextData = {}) {
+  const district = farmer.district || 'your district'
+  const fallbackByType = {
+    [ALERT_TYPES.OFFICER_CALLBACK]: {
+      whatsappMessage: 'તમારી વિનંતી નોંધાઈ ગઈ છે. અધિકારી 2 કલાકમાં સંપર્ક કરશે. તાત્કાલિક મદદ માટે શાખામાં સંપર્ક કરો. જવાબ આપો: 0 મેનુ | 6 અધિકારી',
+      dashboardMessage: 'Farmer requested officer callback; fallback message sent due to AI unavailability.',
+      voiceNoteScript: 'નમસ્તે... તમારી વિનંતી નોંધાઈ ગઈ છે. અધિકારી ટૂંક સમયમાં સંપર્ક કરશે.',
+      reason: 'Officer callback fallback generated'
+    },
+    [ALERT_TYPES.WEATHER_RISK]: {
+      whatsappMessage: `હવામાન જોખમ ચેતવણી: ${district} વિસ્તારમાં આવતી કાલમાં જોખમ શક્ય છે. પાણી વ્યવસ્થા અને પાક નિરીક્ષણ વધારશો. જવાબ આપો: 0 મેનુ | 6 અધિકારી`,
+      dashboardMessage: 'Weather risk fallback alert generated.',
+      voiceNoteScript: 'નમસ્તે... હવામાન જોખમ છે. કૃપા કરીને પાકનું નિરીક્ષણ વધારશો.',
+      reason: 'Weather risk fallback generated'
+    }
+  }
+
+  const generic = {
+    whatsappMessage: 'મહત્વપૂર્ણ કૃષિ/નાણાકીય અપડેટ છે. કૃપા કરીને શાખા અથવા સહાયક સાથે ચકાસો. જવાબ આપો: 0 મેનુ | 6 અધિકારી',
+    dashboardMessage: 'Generic fallback alert generated due to AI unavailability.',
+    voiceNoteScript: 'નમસ્તે... મહત્વપૂર્ણ અપડેટ માટે કૃપા કરીને શાખા સંપર્ક કરો.',
+    reason: `Fallback alert generated for ${alertType || 'custom'}`
+  }
+
+  return fallbackByType[alertType] || {
+    ...generic,
+    reason: contextData.reason || generic.reason
+  }
+}
+
 async function saveAlertToDB({
   farmerId,
   organizationId,
@@ -358,7 +411,8 @@ async function saveAlertToDB({
   voiceNoteScript,
   reason,
   priority,
-  contextData
+  contextData,
+  aiGenerated = true
 }) {
   const result = await pool.query(
     `INSERT INTO alerts (
@@ -378,7 +432,7 @@ async function saveAlertToDB({
       updated_at
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      'pending', true, NOW(), NOW()
+      'pending', $11, NOW(), NOW()
     ) RETURNING *`,
     [
       uuidv4(),
@@ -390,7 +444,8 @@ async function saveAlertToDB({
       messageText,
       dashboardMessage || messageText,
       voiceNoteScript,
-      reason || deriveReasonFallback(dashboardMessage || messageText)
+      reason || deriveReasonFallback(dashboardMessage || messageText),
+      aiGenerated
     ]
   )
 

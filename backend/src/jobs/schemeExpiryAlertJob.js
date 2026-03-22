@@ -2,125 +2,115 @@ const cron = require("node-cron");
 const { pool } = require("../config/db");
 const { info, error } = require("../utils/logger");
 const { generateAlert } = require("../utils/alertGenerator");
-const { ALERT_TYPES, ALERT_DEDUP_WINDOWS } = require("../utils/alertTypes");
+const { evaluateAlertsTriggers } = require("../utils/alertTrigger");
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function runSchemeExpiryAlertJob() {
+/**
+ * SIMPLIFIED ALERT JOB - Only CROP, WEATHER, SOIL, VULNERABILITY, LOAN (< 30 days)
+ * Generates alerts and sends directly to WhatsApp
+ */
+async function runCoreAlertsJob() {
   let generated = 0;
+  let skipped = 0;
 
-  const insuranceExpiring = await pool.query(
-    `SELECT f.id, f.organization_id, f.preferred_language, f.language
-     FROM farmers f
-     WHERE has_crop_insurance = TRUE
-       AND insurance_expiry_date BETWEEN NOW() AND NOW() + INTERVAL '30 days'
-       AND f.phone IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM alerts a
-         WHERE a.farmer_id = f.id
-           AND a.alert_type = $1
-           AND a.created_at > NOW() - INTERVAL '${ALERT_DEDUP_WINDOWS[ALERT_TYPES.INSURANCE_EXPIRY]}'
-       )`,
-    [ALERT_TYPES.INSURANCE_EXPIRY]
-  );
+  try {
+    // Get all active farmers with phone numbers
+    const farmersResult = await pool.query(
+      `SELECT f.id, f.phone
+       FROM farmers f
+       WHERE f.phone IS NOT NULL
+       LIMIT 100`
+    );
 
-  for (const farmer of insuranceExpiring.rows) {
-    await generateAlert({
-      farmerId: farmer.id,
-      organizationId: farmer.organization_id,
-      alertType: ALERT_TYPES.INSURANCE_EXPIRY,
-      language: farmer.preferred_language || farmer.language || "gu",
-      contextData: {},
-      sendWhatsAppMessage: true
-    }).then(() => {
-      generated += 1;
-    }).catch((err) => {
-      error("Insurance alert generation failed", { farmerId: farmer.id, message: err.message });
-    });
+    info(`Core alerts job: Processing ${farmersResult.rows.length} farmers`);
 
-    await delay(1500);
+    for (const farmer of farmersResult.rows) {
+      try {
+        // Evaluate all active triggers for this farmer
+        const triggers = await evaluateAlertsTriggers(farmer.id);
+
+        if (triggers.length === 0) {
+          skipped += 1;
+          continue;
+        }
+
+        // Generate alert for each trigger
+        for (const trigger of triggers) {
+          try {
+            // Check for duplicate alert (no recent alert of same type)
+            const recentAlert = await pool.query(
+              `SELECT id FROM alerts
+               WHERE farmer_id = $1
+               AND alert_type = $2
+               AND created_at > NOW() - INTERVAL '24 hours'
+               LIMIT 1`,
+              [farmer.id, trigger.alertType]
+            );
+
+            if (recentAlert.rows.length > 0) {
+              // Skip duplicate
+              continue;
+            }
+
+            // Generate and send alert to WhatsApp immediately
+            await generateAlert({
+              farmerId: farmer.id,
+              alertType: trigger.alertType,
+              language: 'gu',
+              contextData: trigger.contextData,
+              sendWhatsAppMessage: true
+            });
+
+            generated += 1;
+            info(`Alert sent: ${trigger.alertType} for farmer ${farmer.id}`);
+
+            // Rate limiting
+            await delay(1500);
+
+          } catch (err) {
+            error("Alert generation failed", {
+              farmerId: farmer.id,
+              alertType: trigger.alertType,
+              message: err.message
+            });
+          }
+        }
+
+      } catch (err) {
+        error("Farmer trigger evaluation failed", {
+          farmerId: farmer.id,
+          message: err.message
+        });
+      }
+
+      await delay(500);
+    }
+
+    info(`Core alerts job completed: ${generated} alerts sent, ${skipped} farmers skipped`);
+
+  } catch (err) {
+    error("Core alerts job failed", { message: err.message });
   }
-
-  const overdueLoan = await pool.query(
-    `SELECT f.id, f.organization_id, f.preferred_language, f.language
-     FROM farmers f
-     WHERE loan_due_date < NOW()
-       AND loan_type IS NOT NULL
-       AND lower(loan_type) != 'none'
-       AND f.phone IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM alerts a
-         WHERE a.farmer_id = f.id
-           AND a.alert_type = $1
-           AND a.created_at > NOW() - INTERVAL '${ALERT_DEDUP_WINDOWS[ALERT_TYPES.LOAN_OVERDUE]}'
-       )`,
-    [ALERT_TYPES.LOAN_OVERDUE]
-  );
-
-  for (const farmer of overdueLoan.rows) {
-    await generateAlert({
-      farmerId: farmer.id,
-      organizationId: farmer.organization_id,
-      alertType: ALERT_TYPES.LOAN_OVERDUE,
-      language: farmer.preferred_language || farmer.language || "gu",
-      contextData: {},
-      sendWhatsAppMessage: true
-    }).then(() => {
-      generated += 1;
-    }).catch((err) => {
-      error("Loan alert generation failed", { farmerId: farmer.id, message: err.message });
-    });
-
-    await delay(1500);
-  }
-
-  const pmKisanPending = await pool.query(
-    `SELECT f.id, f.organization_id, f.preferred_language, f.language
-     FROM farmers f
-     WHERE pm_kisan_enrolled = TRUE
-       AND (
-         pm_kisan_last_installment_date IS NULL
-         OR pm_kisan_last_installment_date < NOW() - INTERVAL '120 days'
-       )
-       AND f.phone IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM alerts a
-         WHERE a.farmer_id = f.id
-           AND a.alert_type = $1
-           AND a.created_at > NOW() - INTERVAL '${ALERT_DEDUP_WINDOWS[ALERT_TYPES.PM_KISAN_PENDING]}'
-       )`,
-    [ALERT_TYPES.PM_KISAN_PENDING]
-  );
-
-  for (const farmer of pmKisanPending.rows) {
-    await generateAlert({
-      farmerId: farmer.id,
-      organizationId: farmer.organization_id,
-      alertType: ALERT_TYPES.PM_KISAN_PENDING,
-      language: farmer.preferred_language || farmer.language || "gu",
-      contextData: {},
-      sendWhatsAppMessage: true
-    }).then(() => {
-      generated += 1;
-    }).catch((err) => {
-      error("PM-KISAN alert generation failed", { farmerId: farmer.id, message: err.message });
-    });
-
-    await delay(1500);
-  }
-
-  info("Scheme expiry alert job completed", { alertsGenerated: generated });
 }
 
+// Run every hour
+cron.schedule("0 * * * *", () => {
+  info("Starting core alerts job...");
+  runCoreAlertsJob();
+});
+
+// Export functions
 function scheduleSchemeExpiryAlertJob() {
-  cron.schedule("0 6 * * *", () => {
-    runSchemeExpiryAlertJob().catch((err) => {
-      error("Scheme expiry alert job failed", { message: err.message });
-    });
-  });
+  info("Core alerts job scheduler initialized (runs every hour)");
 }
 
-module.exports = {
-  runSchemeExpiryAlertJob,
-  scheduleSchemeExpiryAlertJob
+async function runSchemeExpiryAlertJob() {
+  await runCoreAlertsJob();
+}
+
+module.exports = { 
+  runCoreAlertsJob,
+  scheduleSchemeExpiryAlertJob,
+  runSchemeExpiryAlertJob
 };
