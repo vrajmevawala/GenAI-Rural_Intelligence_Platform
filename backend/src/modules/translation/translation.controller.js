@@ -1,4 +1,5 @@
 const translationService = require("./translation.service");
+const { generateAzureTts } = require("../../utils/azureTts");
 
 async function translateData(req, res, next) {
   try {
@@ -25,6 +26,28 @@ async function translateData(req, res, next) {
   }
 }
 
+async function generateTts(req, res, next) {
+  try {
+    const { text, language } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ success: false, message: "text is required" });
+    }
+
+    const audioBuffer = await generateAzureTts(text, language || 'gu');
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audioBuffer.length
+    });
+
+    res.send(audioBuffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
-  translateData
+  translateData,
+  generateTts
 };

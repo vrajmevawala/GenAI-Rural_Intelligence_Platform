@@ -22,7 +22,7 @@ async function run() {
       const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8');
       await client.query(sql);
     }
-    
+
     console.log('Done successfully!');
     process.exit(0);
   } catch (err) {

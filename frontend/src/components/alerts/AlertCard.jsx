@@ -7,6 +7,8 @@ import { cn } from '@/utils/cn'
 import TranslatedText from '@/components/common/TranslatedText'
 import toast from 'react-hot-toast'
 import { sendAlertVoiceMp3 } from '@/api/whatsapp.api'
+import useLanguage from '@/hooks/useLanguage'
+import useAuthStore from '@/store/authStore'
 
 const borderColors = {
   low: 'border-l-emerald-400',
@@ -50,15 +52,58 @@ function blobToDataUrl(blob) {
 }
 
 export default function AlertCard({ alert, onStatusUpdate, index = 0 }) {
+  const { language: currentLang } = useLanguage()
   const alertDomain = getAlertDomain(alert)
 
   const handlePlayVoice = async () => {
     const text = String(alert?.voice_note_script || alert?.message_text || alert?.message || '').trim()
+    const targetLang = alert?.language || currentLang
+
     if (!text) {
       toast.error('No voice text available for this alert')
       return
     }
 
+    // Special handling for Gujarati and Hindi using high-quality Azure TTS
+    if (targetLang === 'gu' || targetLang === 'hin' || targetLang === 'hi') {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000/api'}/translate/tts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${useAuthStore.getState().accessToken}`
+          },
+          body: JSON.stringify({ text, language: targetLang })
+        })
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          throw new Error(errData.message || `Server responded with ${response.status}`)
+        }
+
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        await audio.play()
+        return
+      } catch (err) {
+        console.error('Azure TTS failed, falling back to native browser TTS:', err)
+        // Fallback to native synthesis if server fails
+        if (window.speechSynthesis) {
+          window.speechSynthesis.cancel()
+          const utterance = new SpeechSynthesisUtterance(text)
+          utterance.lang = targetLang === 'gu' ? 'gu-IN' : 'hi-IN'
+          utterance.rate = 0.9
+          const voices = window.speechSynthesis.getVoices()
+          const bestVoice = voices.find(v => v.lang.startsWith(targetLang === 'gu' ? 'gu' : 'hi'))
+          if (bestVoice) utterance.voice = bestVoice
+          window.speechSynthesis.speak(utterance)
+        }
+        return
+      }
+    }
+
+    // Fallback to Puter for English or others
     if (!window.puter?.ai?.txt2speech) {
       toast.error('Puter voice service is not available')
       return
