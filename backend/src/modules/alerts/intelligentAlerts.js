@@ -1,7 +1,11 @@
 const { pool } = require("../../config/db");
 const { callGroq } = require("../../utils/groqClient");
 const { validateAndLog } = require("../../utils/alertValidator");
-const { ALERT_TYPES, ALERT_PRIORITY_MAP } = require("../../utils/alertTypes");
+const {
+  ALERT_TYPES,
+  ALERT_PRIORITY_MAP,
+  prependAlertDomainLabel
+} = require("../../utils/alertTypes");
 const {
   CROP_KNOWLEDGE,
   getCropGrowthStage,
@@ -391,6 +395,8 @@ Now REWRITE focusing on fixing ONLY the errors listed above.
       }
     }
 
+    const labeledWhatsAppMessage = prependAlertDomainLabel(parsed.whatsappMessage, alertConfig.type);
+
     // Save to DB with validation score
     const savedAlert = await saveAlert({
       farmerId: farmer.id,
@@ -398,7 +404,7 @@ Now REWRITE focusing on fixing ONLY the errors listed above.
       alertType: alertConfig.type,
       priority: alertConfig.priority || ALERT_PRIORITY_MAP[alertConfig.type],
       language: lang,
-      messageText: parsed.whatsappMessage,
+      messageText: labeledWhatsAppMessage,
       voiceNoteScript: parsed.voiceNoteScript,
       reason: parsed.reason,
       validationScore: validation ? validation.score : 50
@@ -414,7 +420,7 @@ Now REWRITE focusing on fixing ONLY the errors listed above.
         const normalizedPhone = normalizePhoneNumber(farmer.phone);
         if (!normalizedPhone) throw new Error(`Invalid phone number: ${farmer.phone}`);
         
-        await whatsappService.sendMessage(normalizedPhone, parsed.whatsappMessage);
+        await whatsappService.sendMessage(normalizedPhone, labeledWhatsAppMessage);
         await pool.query(`UPDATE alerts SET status = 'sent', sent_at = NOW() WHERE id = $1`, [
           savedAlert.id
         ]);

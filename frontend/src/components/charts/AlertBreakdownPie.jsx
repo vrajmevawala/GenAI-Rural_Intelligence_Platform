@@ -1,19 +1,13 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 
 const COLORS = {
-  weather: '#3B82F6',
-  crop_advisory: '#8B5CF6',
+  agriculture: '#3B82F6',
   financial: '#10B981',
 }
 
 const LABELS = {
-  weather: '🌦️ Weather Alerts',
-  crop_advisory: '🌾 Crop Advisory',
-  financial: '💰 Financial & Schemes',
-  loan_repayment: 'Financial & Schemes',
-  insurance_expiry: 'Financial & Schemes',
-  scheme_eligibility: 'Financial & Schemes',
-  market_price: 'Financial & Schemes',
+  agriculture: '🌾 Agriculture Alerts',
+  financial: '💰 Financial Alerts',
 }
 
 function CustomTooltip({ active, payload }) {
@@ -35,14 +29,11 @@ function CustomTooltip({ active, payload }) {
 export default function AlertBreakdownPie({ data = [] }) {
   const total = data.reduce((sum, d) => sum + (d.count || d.value || 0), 0)
 
-  // Group alerts into 3 main categories
+  // Group alerts into 2 domain categories
   const grouped = data.reduce((acc, d) => {
-    const type = d.type?.toLowerCase() || ''
-    let category = 'financial'
-    
-    if (type === 'weather') category = 'weather'
-    else if (type === 'crop_advisory') category = 'crop_advisory'
-    else if (['loan_repayment', 'insurance_expiry', 'scheme_eligibility', 'market_price'].includes(type)) category = 'financial'
+    const category = (d.type || d.name || '').toLowerCase() === 'financial'
+      ? 'financial'
+      : 'agriculture'
     
     const existing = acc.find(item => item.type === category)
     if (existing) {
@@ -61,9 +52,8 @@ export default function AlertBreakdownPie({ data = [] }) {
         total,
       }))
     : [
-        { name: '🌦️ Weather Alerts', value: 28, fill: COLORS.weather, total: 100 },
-        { name: '🌾 Crop Advisory', value: 35, fill: COLORS.crop_advisory, total: 100 },
-        { name: '💰 Financial & Schemes', value: 37, fill: COLORS.financial, total: 100 },
+        { name: '🌾 Agriculture Alerts', value: 60, fill: COLORS.agriculture, total: 100 },
+        { name: '💰 Financial Alerts', value: 40, fill: COLORS.financial, total: 100 },
       ]
 
   return (

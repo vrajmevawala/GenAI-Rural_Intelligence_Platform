@@ -7,6 +7,7 @@ const INTENTS = {
   SCHEME: 'scheme',
   PROFILE: 'profile',
   OFFICER: 'officer',
+  FINANCIAL: 'financial',
   MENU: 'menu',
   LANGUAGE_GU: 'lang_gu',
   LANGUAGE_HI: 'lang_hi',
@@ -27,6 +28,7 @@ const KEYWORD_MAP = {
   '4': INTENTS.SCHEME,
   '5': INTENTS.PROFILE,
   '6': INTENTS.OFFICER,
+  '7': INTENTS.FINANCIAL,
   '0': INTENTS.MENU,
   'hi': INTENTS.MENU,
   'hii': INTENTS.MENU,
@@ -45,7 +47,10 @@ const KEYWORD_MAP = {
   'gu': INTENTS.LANGUAGE_GU,
   'gujarati': INTENTS.LANGUAGE_GU,
   'gu ma': INTENTS.LANGUAGE_GU,
+  'hin': INTENTS.LANGUAGE_HI,
   'hindi': INTENTS.LANGUAGE_HI,
+  'lang hin': INTENTS.LANGUAGE_HI,
+  'language hin': INTENTS.LANGUAGE_HI,
   'lang hi': INTENTS.LANGUAGE_HI,
   'language hi': INTENTS.LANGUAGE_HI,
   'en': INTENTS.LANGUAGE_EN,
@@ -99,6 +104,11 @@ const MULTILINGUAL_KEYWORDS = {
   [INTENTS.OFFICER]: [
     'officer', 'bank', 'contact', 'call', 'phone', 'baat',
     'baat karo', 'वात', 'વાત', 'sahayak'
+  ],
+  [INTENTS.FINANCIAL]: [
+    'financial', 'money', 'bank', 'loan', 'कर्ज', 'કર્જ',
+    'kcc', 'otp', 'upi', 'payment', 'digital', 'money', 'paise',
+    'પૈસો', 'insurance', 'subsidy', 'सहायता', 'મદદ'
   ]
 }
 
@@ -106,52 +116,46 @@ async function detectIntent(userMessage, language, conversationStage) {
   const normalized = String(userMessage || '').trim().toLowerCase()
   const normalizedNoPunct = normalized.replace(/[!?.:,;]+/g, '').trim()
 
+  // === LAYER 1: EXACT KEYWORD MATCHES (Menu numbers, language switches) ===
+  // These ALWAYS match and are high-confidence menu commands
   if (KEYWORD_MAP[normalized]) {
-    return { intent: KEYWORD_MAP[normalized], confidence: 1.0, source: 'keyword' }
-  }
-
-  if (KEYWORD_MAP[normalizedNoPunct]) {
-    return { intent: KEYWORD_MAP[normalizedNoPunct], confidence: 1.0, source: 'keyword' }
-  }
-
-  for (const [intent, keywords] of Object.entries(MULTILINGUAL_KEYWORDS)) {
-    if (keywords.some((kw) => normalized.includes(kw))) {
-      return { intent, confidence: 0.9, source: 'keyword' }
+    const intent = KEYWORD_MAP[normalized];
+    // Language switches are allowed to construct intent
+    if (intent && intent.startsWith('lang_')) {
+      return { intent, confidence: 1.0, source: 'keyword' }
+    }
+    // Menu/control commands
+    if ([INTENTS.MENU, INTENTS.YES, INTENTS.NO, INTENTS.STOP, INTENTS.APPLY].includes(intent)) {
+      return { intent, confidence: 1.0, source: 'keyword' }
+    }
+    // Menu numbers 1-6 (menu options)
+    if (['0', '1', '2', '3', '4', '5', '6'].includes(normalized)) {
+      return { intent, confidence: 1.0, source: 'keyword' }
     }
   }
 
+  if (KEYWORD_MAP[normalizedNoPunct]) {
+    const intent = KEYWORD_MAP[normalizedNoPunct];
+    // Language switches are allowed
+    if (intent && intent.startsWith('lang_')) {
+      return { intent, confidence: 1.0, source: 'keyword' }
+    }
+    // Menu/control commands
+    if ([INTENTS.MENU, INTENTS.YES, INTENTS.NO, INTENTS.STOP, INTENTS.APPLY].includes(intent)) {
+      return { intent, confidence: 1.0, source: 'keyword' }
+    }
+  }
+
+  // === LAYER 2: Short messages ===
   if (normalized.length < 2) {
     return { intent: INTENTS.OTHER, confidence: 0.5, source: 'default' }
   }
 
-  const systemPrompt = `You are an intent classifier for a rural farmer WhatsApp bot in India.
-The farmer may write in Gujarati, Hindi, English, or Hinglish.
-Classify their message into EXACTLY ONE of these intents:
-insurance, pmkisan, weather, scheme, profile, officer, menu,
-yes, no, stop, apply, lang_gu, lang_hi, lang_en, lang_hinglish, other.
-Current conversation stage: ${conversationStage}
-Current language: ${language}
-Reply with ONLY the intent word. Nothing else.`
-
-  try {
-    const result = await callGroq(
-      systemPrompt,
-      `Farmer message: "${userMessage}"`,
-      20
-    )
-
-    const detectedIntent = String(result || '').trim().toLowerCase()
-    const validIntents = Object.values(INTENTS)
-
-    if (validIntents.includes(detectedIntent)) {
-      return { intent: detectedIntent, confidence: 0.85, source: 'groq' }
-    }
-
-    return { intent: INTENTS.OTHER, confidence: 0.5, source: 'groq_fallback' }
-  } catch (err) {
-    console.error('Intent detection failed:', err.message)
-    return { intent: INTENTS.OTHER, confidence: 0.0, source: 'error' }
-  }
+  // === LAYER 3: DEFAULT TO GROQ ===
+  // CRITICAL: Route ALL other messages to free-text handler with Groq
+  // This ensures NO static menu responses, only dynamic Groq-based answers
+  console.log(`[detectIntent] No exact menu match, routing to Groq free-text: "${userMessage}"`);
+  return { intent: INTENTS.OTHER, confidence: 0.95, source: 'groq_freetext' };
 }
 
 module.exports = { detectIntent, INTENTS }

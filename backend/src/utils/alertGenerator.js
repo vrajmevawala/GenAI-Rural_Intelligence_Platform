@@ -1,7 +1,12 @@
 const { v4: uuidv4 } = require('uuid')
 const { pool } = require('../config/db')
 const { callGroq } = require('./groqClient')
-const { ALERT_TYPES, ALERT_PRIORITY_MAP, ALERT_PRIORITIES } = require('./alertTypes')
+const {
+  ALERT_TYPES,
+  ALERT_PRIORITY_MAP,
+  ALERT_PRIORITIES,
+  prependAlertDomainLabel
+} = require('./alertTypes')
 
 async function generateAlert({
   farmerId,
@@ -43,6 +48,8 @@ async function generateAlert({
     aiGenerated = false
   }
 
+  parsed.whatsappMessage = prependAlertDomainLabel(parsed.whatsappMessage, normalizedType)
+
   const savedAlert = await saveAlertToDB({
     farmerId,
     organizationId: orgId,
@@ -61,6 +68,7 @@ async function generateAlert({
   if (sendWhatsAppMessage && farmer.phone) {
     try {
       const whatsappService = require('../modules/whatsapp/whatsapp.service')
+
       whatsappSid = await whatsappService.sendMessage(farmer.phone, parsed.whatsappMessage)
       await pool.query(
         `UPDATE alerts

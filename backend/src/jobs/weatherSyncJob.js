@@ -43,7 +43,7 @@ async function runWeatherSyncJob() {
 }
 
 function scheduleWeatherSyncJob() {
-  cron.schedule("0 */6 * * *", () => {
+  cron.schedule("0 */2 * * *", () => { // minute hour dayOfMonth month dayOfWeek
     runWeatherSyncJob().catch((err) => {
       error("Weather sync job failed", { message: err.message });
     });

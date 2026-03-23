@@ -105,6 +105,9 @@ async function handleFreeText(userMessage, conv) {
         reply = await handleGeneralQuery(userMessage, conv, langName, lang);
     }
 
+    // SAFETY CHECK: Validate response is relevant to the query
+    reply = await validateReplyRelevance(reply, queryType, userMessage, lang, langName);
+
     console.log(`[FreeText] Reply (${reply?.length} chars): "${reply?.substring(0, 80)}..."`);
     return reply;
   } catch (err) {
@@ -146,6 +149,75 @@ irrigation_query | market_price_query | profile_query | general_farming`;
     logger.warn('Groq classification failed', { error: e.message, message });
     return 'general_farming';
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════
+// VALIDATION: Check if reply is on-topic
+// ═════════════════════════════════════════════════════════════════════════════════
+
+async function validateReplyRelevance(reply, queryType, userMessage, lang, langName) {
+  if (!reply || typeof reply !== 'string') return reply;
+
+  const lower = reply.toLowerCase();
+  const msgLower = userMessage.toLowerCase();
+
+  // For soil queries, make sure response actually mentions soil or crop
+  if (queryType === 'soil_query') {
+    const soilKeywords = ['mitti', 'soil', 'jamin', 'जमीन', 'કારણ', 'માટી'];
+    const hasSoilContent = soilKeywords.some(kw => lower.includes(kw));
+    if (!hasSoilContent) {
+      return getNotAvailableResponse(queryType, lang);
+    }
+  }
+
+  // For disease queries, ensure response mentions symptoms or treatment
+  if (queryType === 'disease_query') {
+    const diseaseKeywords = ['rog', 'disease', 'treat', 'spray', 'proof', 'management', 'संरक्षण'];
+    const hasContent = diseaseKeywords.some(kw => lower.includes(kw));
+    if (!hasContent) {
+      return getNotAvailableResponse(queryType, lang);
+    }
+  }
+
+  // For fertilizer queries, ensure response mentions fertilizer/nutrients
+  if (queryType === 'fertilizer_query') {
+    const fertKeywords = ['khad', 'khatar', 'fertilizer', 'nutrient', 'urea', 'dap', 'खाद', 'पोषक'];
+    const hasContent = fertKeywords.some(kw => lower.includes(kw));
+    if (!hasContent) {
+      return getNotAvailableResponse(queryType, lang);
+    }
+  }
+
+  // Generic check: if response mentions schemes/loans when it shouldn't, reject it
+  const schemeKeywords = ['pmfby', 'pm-kisan', 'kcc', 'subsidy', 'योजना', 'યોજના'];
+  const hasSchemeContent = schemeKeywords.some(kw => lower.includes(kw));
+  
+  if (hasSchemeContent && !queryType.includes('scheme') && !queryType.includes('profile')) {
+    return getNotAvailableResponse(queryType, lang);
+  }
+
+  return reply;
+}
+
+function getNotAvailableResponse(queryType, lang) {
+  const responses = {
+    gu: `માફ કરશો, આ પ્રશ્ન માટે મારી પાસે પર્યાપ્ત સંસાધનો નથી. 
+
+કૃપા કરીને બેંક અધિકારીથી સંપર્ક કરો.
+0 menu | 6 officer`,
+    
+    hi: `किसान भाई, इस सवाल का जवाब देने के लिए मेरे पास पर्याप्त जानकारी नहीं है।
+
+कृपया बैंक अधिकारी से संपर्क करें।
+0 menu | 6 officer`,
+    
+    en: `Friend, I don't have enough resources for this question.
+
+Please contact your bank officer.
+0 menu | 6 officer`
+  };
+  
+  return responses[lang] || responses.en;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════
@@ -275,6 +347,12 @@ USE EXACT NUMBERS: ${weatherText}`;
 // ═════════════════════════════════════════════════════════════════════════════════
 
 async function handleWeatherQuery(userMessage, conv, langName, lang) {
+  // Extract crop if mentioned in message (e.g., "weather for cotton")
+  const mentionedCrop = extractCropFromMessage(userMessage);
+  const targetCrop = mentionedCrop || conv.primary_crop;
+  const cropInfo = CROP_KNOWLEDGE[targetCrop?.toLowerCase()];
+  const cropGujarati = cropInfo?.gujarati_name || targetCrop;
+
   // Try to extract district from message
   const mentionedDistrict = await extractDistrictFromMessage(userMessage, conv.district);
 
@@ -297,6 +375,14 @@ async function handleWeatherQuery(userMessage, conv, langName, lang) {
   const windspeed = forecast.windspeed_10m_max?.[0];
   const drought = weatherData?.drought_risk_level;
 
+  // Build crop-specific system prompt
+  let cropContext = '';
+  if (mentionedCrop) {
+    cropContext = `\n- CRITICAL: Question is specifically about "${targetCrop}" (${cropGujarati}) crop
+- MUST focus ALL advice on this crop only
+- Use crop-specific farming practices for ${targetCrop}`;
+  }
+
   const systemPrompt = `You are KhedutMitra bot. Give weather in ${langName}.
 STRICT RULES:
 - Use ONLY these exact numbers (DO NOT change them):
@@ -305,18 +391,20 @@ STRICT RULES:
 - MUST mention "${conv.farmer_name}"
 - Plain text, no asterisks, max 320 characters
 - End: "${lang === 'gu' ? '0 મેનુ | 6 ઓફિસર' : '0 menu | 6 officer'}"
-- DO NOT invent any numbers`;
+- DO NOT invent any numbers${cropContext}`;
 
   const userPrompt = `
 QUESTION: "${userMessage}"
 DISTRICT: ${mentionedDistrict}
 FARMER: ${conv.farmer_name}
+CROP: ${targetCrop} (${cropGujarati})
 
 REAL WEATHER DATA:
 Max: ${temp}°C, Min: ${tempMin}°C, Rain: ${rain}mm, Humidity: ${humidity}%, Drought: ${drought}
 
-Summary for ${mentionedDistrict} in ${langName}.
-Include farming tip for ${conv.primary_crop} crop.
+${mentionedCrop 
+  ? `Weather forecast for ${targetCrop} (${cropGujarati}) farming in ${mentionedDistrict}.\nInclude specific action/timing recommendation for this crop based on current weather.`
+  : `Summary for ${mentionedDistrict} in ${langName}.\nInclude farming tip for ${conv.primary_crop} crop.`}
 Use EXACT numbers only.`;
 
   return await callGroq(systemPrompt, userPrompt, 400);

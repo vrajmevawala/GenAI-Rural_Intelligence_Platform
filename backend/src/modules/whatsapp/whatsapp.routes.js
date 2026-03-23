@@ -59,4 +59,11 @@ router.post(
   controller.testTwilio
 )
 
+router.post(
+  '/send-alert-voice/:alertId',
+  authenticate,
+  requireRole('superadmin', 'org_admin', 'field_officer'),
+  controller.sendAlertVoice
+)
+
 module.exports = router

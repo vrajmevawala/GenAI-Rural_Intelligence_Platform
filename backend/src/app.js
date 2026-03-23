@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const morgan = require("morgan");
@@ -20,10 +21,14 @@ const diseaseRoutes = require("./modules/disease/disease.routes");
 const locationsRoutes = require("./modules/locations/locations.routes");
 const translationRoutes = require("./modules/translation/translation.routes");
 const whatsappRoutes = require("./modules/whatsapp/whatsapp.routes");
+const telegramRoutes = require("./modules/telegram/telegram.routes");
 
 dotenv.config();
 
 const app = express();
+
+// Required when running behind ngrok/reverse proxies so rate limiter can read client IP safely.
+app.set("trust proxy", 1);
 
 const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
   .split(",")
@@ -47,6 +52,7 @@ app.use(express.urlencoded({ limit: "1mb", extended: true }));
 app.use(cookieParser());
 app.use(morgan("combined"));
 app.use(generalLimiter);
+app.use("/media", express.static(path.join(__dirname, "../public")));
 
 app.get("/health", (req, res) => {
   res.json({ success: true, data: { status: "ok" }, message: "Healthy", meta: null });
@@ -65,6 +71,7 @@ app.use("/api/disease", diseaseRoutes);
 app.use("/api/locations", locationsRoutes);
 app.use("/api/translate", translationRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
+app.use("/api/telegram", telegramRoutes);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404, "NOT_FOUND"));

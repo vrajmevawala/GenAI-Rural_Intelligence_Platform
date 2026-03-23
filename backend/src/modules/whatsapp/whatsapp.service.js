@@ -12,6 +12,7 @@ const { AppError } = require('../../middleware/errorHandler')
 const logger = require('../../utils/logger')
 const { handleFreeText } = require('./whatsapp.freetext.service')
 const { ruleBasedClassify, extractCropFromMessage } = require('./whatsapp.rules')
+const { handleFinancialFlow } = require('./whatsapp.financial.service')
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -36,17 +37,23 @@ function normalizePhoneNumber(phone) {
  * ─── SEND A WHATSAPP MESSAGE ──────────────────────────────────────────────────
  * toPhone must be in E.164 format: +91XXXXXXXXXX (no whatsapp: prefix)
  */
-async function sendMessage(toPhone, body) {
-  if (!toPhone || !body) {
-    throw new AppError('Phone and message body required', 400, 'INVALID_INPUT')
+async function sendMessage(toPhone, body, options = {}) {
+  const mediaUrl = options?.mediaUrl || null
+
+  if (!toPhone || (!body && !mediaUrl)) {
+    throw new AppError('Phone and message body or media URL required', 400, 'INVALID_INPUT')
   }
 
   try {
-    const message = await client.messages.create({
+    const payload = {
       from: process.env.TWILIO_WHATSAPP_FROM,
-      to: `whatsapp:${toPhone}`,
-      body,
-    })
+      to: `whatsapp:${toPhone}`
+    }
+
+    if (body) payload.body = body
+    if (mediaUrl) payload.mediaUrl = [mediaUrl]
+
+    const message = await client.messages.create(payload)
     return message.sid
   } catch (err) {
     console.error('Twilio sendMessage error:', err)
@@ -62,6 +69,9 @@ async function sendMessage(toPhone, body) {
  * ─── GET OR CREATE ACTIVE CONVERSATION ───────────────────────────────────────
  */
 async function getOrCreateConversation(farmerId, organizationId, phone, language = 'gu') {
+  // Normalize phone to E.164 format for consistent storage and lookup
+  const normalizedPhone = normalizePhoneNumber(phone)
+  
   // Check for existing active non-expired session
   const existing = await pool.query(
     `SELECT * FROM whatsapp_conversations 
@@ -72,13 +82,13 @@ async function getOrCreateConversation(farmerId, organizationId, phone, language
   )
   if (existing.rows.length > 0) return existing.rows[0]
 
-  // Create new conversation session
+  // Create new conversation session with normalized phone
   const result = await pool.query(
     `INSERT INTO whatsapp_conversations 
      (id, farmer_id, organization_id, phone_number, language, current_stage)
      VALUES ($1, $2, $3, $4, $5, 'welcome')
      RETURNING *`,
-    [uuidv4(), farmerId, organizationId, phone, language]
+    [uuidv4(), farmerId, organizationId, normalizedPhone, language]
   )
   return result.rows[0]
 }
@@ -204,6 +214,8 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
               f.village,
               f.land_size,
               f.annual_income,
+              to_jsonb(f)->>'soil_type' AS soil_type,
+              to_jsonb(f)->>'water_source' AS water_source,
               to_jsonb(f)->>'loan_type' AS loan_type,
               (to_jsonb(f)->>'loan_due_date')::timestamp AS loan_due_date,
               COALESCE((to_jsonb(f)->>'has_crop_insurance')::boolean, false) AS has_crop_insurance,
@@ -277,6 +289,19 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
             nextStage: 'menu',
             startedByFarmer: true
           }
+        } else {
+          // Farmer not found in DB, but sent a greeting. Show menu and ask to register.
+          logger.info('Self-start message from unregistered phone', { phone: cleanPhone })
+          const language = 'gu' // Default language for unknown farmers
+          const reply = await getUnregisteredFarmerWelcome(language)
+          const sid = await sendMessage(cleanPhone, reply)
+
+          return {
+            handled: true,
+            conversationId: null,
+            nextStage: null,
+            message: 'Unregistered farmer shown welcome message'
+          }
         }
       }
 
@@ -299,11 +324,39 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
       return { handled: true, conversationId: conv.id, nextStage: conv.current_stage }
     }
 
-    const menuIntent = conv.current_stage === 'menu' ? resolveMenuSelectionIntent(inboundBody) : null
-    const detected = menuIntent
-      ? { intent: menuIntent, source: 'menu_text', confidence: 1.0 }
-      : await detectIntent(inboundBody, conv.language, conv.current_stage)
-    const intent = detected.intent
+    // Stage-aware intent detection
+    // In financial_flow: numeric input 0-10 should be treated as question selection, not menu
+    let intent
+    let detectedSource = 'unknown'
+    
+    if (conv.current_stage === 'financial_flow') {
+      const numInput = parseInt(String(inboundBody || '').trim());
+      if (!isNaN(numInput) && numInput >= 0 && numInput <= 10) {
+        // In financial flow, numeric input is a financial question selection
+        if (numInput === 0) {
+          intent = INTENTS.MENU; // 0 goes back to main menu
+        } else {
+          intent = INTENTS.FINANCIAL; // 1-10 are financial questions
+        }
+        detectedSource = 'financial_question_selection';
+      } else {
+        // Non-numeric input in financial flow - detect normally
+        const detected = await detectIntent(inboundBody, conv.language, conv.current_stage);
+        intent = detected.intent;
+        detectedSource = detected.source || 'detection';
+      }
+    } else {
+      // In other stages: check menu intent first, then fall back to detection
+      const menuIntent = resolveMenuSelectionIntent(inboundBody);
+      if (menuIntent) {
+        intent = menuIntent;
+        detectedSource = 'menu_text';
+      } else {
+        const detected = await detectIntent(inboundBody, conv.language, conv.current_stage);
+        intent = detected.intent;
+        detectedSource = detected.source || 'detection';
+      }
+    }
 
     if (String(intent || '').startsWith('lang_')) {
       const langMap = {
@@ -351,6 +404,15 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
         replyText = await handleOfficerConnect(conv, inboundBody, conv.language)
         nextStage = 'officer_connect'
         break
+      case INTENTS.FINANCIAL:
+        // If coming from menu stage, show financial menu first (pass null)
+        // If already in financial_flow stage, process the question number
+        const isFromMenuStage = conv.current_stage === 'menu'
+        const financialInput = isFromMenuStage ? null : inboundBody
+        const financialResult = await handleFinancialFlow(conv, financialInput, conv.language)
+        replyText = financialResult.message
+        nextStage = 'financial_flow'
+        break
       case INTENTS.MENU:
         replyText = await generateMenuMessage(conv, conv.language)
         nextStage = 'menu'
@@ -379,7 +441,7 @@ async function handleInboundMessage(fromPhone, body, mediaUrl = null) {
 
     await saveContext(conv.id, {
       last_intent: intent,
-      last_intent_source: detected.source,
+      last_intent_source: detectedSource,
       last_user_message: inboundBody,
       last_stage: nextStage
     })
@@ -699,7 +761,7 @@ async function processBotReply(conv, userInput) {
     )
     return { message: getLanguageSwitchConfirmation('gu'), nextStage: stage }
   }
-  if (['hindi', 'hi'].includes(userInput)) {
+  if (['hindi', 'hin', 'hi'].includes(userInput)) {
     await pool.query(
       'UPDATE whatsapp_conversations SET language = $1 WHERE id = $2',
       ['hi', conv.id]
@@ -774,11 +836,11 @@ async function generateDynamicMenuHeader(conv, language) {
 
 async function handleMenuSelection(conv, input, language) {
   const num = parseInt(input)
-  if (isNaN(num) || num < 1 || num > 6) {
+  if (isNaN(num) || num < 1 || num > 7) {
     return { message: await generateMenuMessage(conv, language), nextStage: 'menu' }
   }
 
-  const stages = ['insurance_flow', 'pmkisan_flow', 'weather_flow', 'scheme_flow', 'profile_view', 'officer_connect']
+  const stages = ['insurance_flow', 'pmkisan_flow', 'weather_flow', 'scheme_flow', 'profile_view', 'officer_connect', 'financial_flow']
 
   const targetStage = stages[num - 1] || 'menu'
 
@@ -788,6 +850,10 @@ async function handleMenuSelection(conv, input, language) {
 
   if (targetStage === 'profile_view') {
     return await handleProfileView(conv, input, language)
+  }
+
+  if (targetStage === 'financial_flow') {
+    return await handleFinancialFlow(conv, null, language)
   }
 
   const message = await generateStageIntro(targetStage, conv, language)
@@ -1021,7 +1087,10 @@ async function buildSchemeDynamicMessage(profile, lang) {
 
 async function handleInsuranceFlow(conv, input, language) {
   const lang = language || conv.language || 'gu'
-  const intro = await generateStageIntro('insurance_flow', conv, lang)
+  
+  // Fetch fresh farmer insurance data from DB for SQL-driven response
+  const insuranceData = await getFarmerInsuranceData(conv.farmer_id)
+  const intro = buildInsuranceSQLMessage(insuranceData, conv, lang)
   const message = `${intro}\n\n0 for menu | 6 for officer help`
 
   if (typeof input !== 'undefined') {
@@ -1032,7 +1101,10 @@ async function handleInsuranceFlow(conv, input, language) {
 
 async function handlePmKisanFlow(conv, input, language) {
   const lang = language || conv.language || 'gu'
-  const intro = await generateStageIntro('pmkisan_flow', conv, lang)
+  
+  // Fetch fresh farmer PM-KISAN data from DB for SQL-driven response
+  const pmkisanData = await getFarmerPmkisanData(conv.farmer_id)
+  const intro = buildPmKisanSQLMessage(pmkisanData, conv, lang)
   const message = `${intro}\n\n0 for menu | 6 for officer help`
 
   if (typeof input !== 'undefined') {
@@ -1054,7 +1126,10 @@ async function handleWeatherFlow(conv, input, language) {
 
 async function handleSchemeFlow(conv, input, language) {
   const lang = language || conv.language || 'gu'
-  const intro = await generateStageIntro('scheme_flow', conv, lang)
+  
+  // Fetch farmer profile and matched schemes from DB for SQL-driven response
+  const profile = await getFarmerSnapshotForFlows(conv)
+  const intro = await buildSchemeDynamicMessage(profile, lang)
   const message = `${intro}\n\n0 for menu | 6 for officer help`
 
   if (typeof input !== 'undefined') {
@@ -1186,6 +1261,7 @@ function resolveMenuSelectionIntent(text) {
   if (['4', 'four', '૪', 'चार'].includes(clean)) return INTENTS.SCHEME
   if (['5', 'five', '૫', 'पांच'].includes(clean)) return INTENTS.PROFILE
   if (['6', 'six', '૬', 'छह'].includes(clean)) return INTENTS.OFFICER
+  if (['7', 'seven', '૭', 'सात'].includes(clean)) return INTENTS.FINANCIAL
   if (['0', 'menu', 'main menu', 'back'].includes(clean)) return INTENTS.MENU
 
   if (clean.includes('insurance') || clean.includes('bima') || clean.includes('વીમા') || clean.includes('बीमा')) return INTENTS.INSURANCE
@@ -1194,6 +1270,7 @@ function resolveMenuSelectionIntent(text) {
   if (clean.includes('scheme') || clean.includes('yojana') || clean.includes('યોજના')) return INTENTS.SCHEME
   if (clean.includes('profile') || clean.includes('પ્રોફાઇલ') || clean.includes('प्रोफाइल')) return INTENTS.PROFILE
   if (clean.includes('officer') || clean.includes('contact') || clean.includes('call') || clean.includes('અધિકારી')) return INTENTS.OFFICER
+  if (clean.includes('financial') || clean.includes('પૈસો') || clean.includes('पैसे') || clean.includes('bank') || clean.includes('loan')) return INTENTS.FINANCIAL
 
   return null
 }
@@ -1240,6 +1317,35 @@ function getDaysUntil(dateStr) {
   return diff > 0 ? `${diff}` : 'already expired'
 }
 
+/**
+ * Format date for display in different languages
+ * Input: Date object, string, ISO date, or timestamp
+ * Output: "29 જુન 2027" / "29 जून 2027" / "Jun 29, 2027"
+ */
+function formatDateForDisplay(dateInput, lang = 'gu') {
+  if (!dateInput) return 'N/A'
+  
+  try {
+    const dateObj = new Date(dateInput)
+    if (isNaN(dateObj.getTime())) return String(dateInput)
+    
+    const day = dateObj.getDate()
+    const year = dateObj.getFullYear()
+    
+    const monthsGu = ['જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ', 'મે', 'જુન', 'જુલાઈ', 'ઑગસ્ટ', 'સપ્ટેમ્બર', 'ઑક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર']
+    const monthsHi = ['जनवरी', 'फरवरी', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुलाई', 'अगस्त', 'सितंबर', 'अक्टूबर', 'नवंबर', 'दिसंबर']
+    const monthsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    
+    const month = dateObj.getMonth()
+    
+    if (lang === 'gu') return `${day} ${monthsGu[month]} ${year}`
+    if (lang === 'hi') return `${day} ${monthsHi[month]} ${year}`
+    return `${monthsEn[month]} ${day}, ${year}`
+  } catch (err) {
+    return String(dateInput)
+  }
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return 'N/A'
   try {
@@ -1263,7 +1369,7 @@ function getMenuOption(type, lang) {
 
 function getFixedMenuContent(lang) {
   const menus = {
-    gu: `🌾 *KedutMitra* - મુખ્ય મેનુ 🌾
+    gu: `🌾 *KhedutMitra* - મુખ્ય મેનુ 🌾
 
 કઈ સેવા જોઈએ? નીચેથી બટન પસંદ કરો:
 
@@ -1273,10 +1379,11 @@ function getFixedMenuContent(lang) {
 *4* 📋 સરકારી યોજનાઓ
 *5* 👤 મારી પ્રોફાઇલ જુઓ
 *6* 📞 અધિકારી સાથે વાત કરો
+*7* 📚 આર્થિક પ્રશ્નો (બેંક, OTP, લોન)
 
 _─────────────────_
 *0* પાછા જાવું
-🌐 ભાષા બદલવા: GU / HI / EN`,
+🌐 ભાષા બદલવા: GU / HIN / EN`,
     hi: `🌾 *KhedutMitra* - मुख्य मेनू 🌾
 
 कौन सी सेवा चाहिए? नीचे से चुनें:
@@ -1287,10 +1394,11 @@ _─────────────────_
 *4* 📋 सरकारी योजनाएं
 *5* 👤 मेरी प्रोफाइल देखें
 *6* 📞 अधिकारी से बात करें
+*7* 📚 वित्तीय सवाल (बैंक, OTP, लोन)
 
 _─────────────────_
 *0* वापस जाएं
-🌐 भाषा बदलने के लिए: GU / HI / EN`,
+🌐 भाषा बदलने के लिए: GU / HIN / EN`,
     en: `🌾 *KhedutMitra* - Main Menu 🌾
 
 Which service do you need? Choose below:
@@ -1301,10 +1409,11 @@ Which service do you need? Choose below:
 *4* 📋 Government Schemes
 *5* 👤 My Profile
 *6* 📞 Talk to Officer
+*7* 📚 Financial Questions (Bank, OTP, Loans)
 
 _─────────────────_
 *0* Go Back
-🌐 Change Language: GU / HI / EN`,
+🌐 Change Language: GU / HIN / EN`,
     hinglish: `🌾 KhedutMitra - Main Menu 🌾
 
 Kaun si service chahiye? Neeche se chuno:
@@ -1315,10 +1424,11 @@ Kaun si service chahiye? Neeche se chuno:
 *4* 📋 Sarkari Yojnaye
 *5* 👤 Meri Profile Dekho
 *6* 📞 Officer Se Baat Karo
+*7* 📚 Financial Sawal (Bank, OTP, Loans)
 
 _─────────────────_
 *0* Wapas Jao
-🌐 Bhasha Badlne Ke Liye: GU / HI / EN`
+🌐 Bhasha Badlne Ke Liye: GU / HIN / EN`
   }
   return menus[lang] || menus.en
 }
@@ -1352,11 +1462,11 @@ function getMenuFollowup(lang) {
 
 function getLanguageChangeHelp(lang) {
   return {
-    gu: '\n🌐 ભાષા બદલવા: *GU* (ગુજરાતી) / *HI* (હિંદી) / *EN* (અંગ્રેજી)',
-    hi: '\n🌐 भाषा बदलें: *GU* (गुजराती) / *HI* (हिंदी) / *EN* (अंग्रेजी)',
-    en: '\n🌐 Change Language: *GU* (Gujarati) / *HI* (Hindi) / *EN* (English)',
-    hinglish: '\n🌐 Bhasha Badlo: *GU* (Gujarati) / *HI* (Hindi) / *EN* (English)'
-  }[lang] || 'To change language, type GU / HI / EN.'
+    gu: '\n🌐 ભાષા બદલવા: *GU* (ગુજરાતી) / *HIN* (હિંદી) / *EN* (અંગ્રેજી)',
+    hi: '\n🌐 भाषा बदलें: *GU* (गुजराती) / *HIN* (हिंदी) / *EN* (अंग्रेजी)',
+    en: '\n🌐 Change Language: *GU* (Gujarati) / *HIN* (Hindi) / *EN* (English)',
+    hinglish: '\n🌐 Bhasha Badlo: *GU* (Gujarati) / *HIN* (Hindi) / *EN* (English)'
+  }[lang] || 'To change language, type GU / HIN / EN.'
 }
 
 function getMenuLabel(lang) {
@@ -1520,28 +1630,28 @@ function getStopConfirmation(lang) {
     gu: `✅ *ચેટ બંધ કરી દીધી છે*
 
 જ્યારે પણ જરૂર હોય ફરી શરૂ કરો:
-📱 *HI* અથવા *HELP* લખો
+📱 *HIN* અથવા *HELP* લખો
 
 આશા રાખું તમે કવચ અને સમGothic્ધ રહ્યા છો! 🌾`,
     hi: `✅ *चैट बंद की गई है*
 
 जब भी चाहिए फिर से शुरू करो:
-📱 *HI* या *HELP* लिखो
+📱 *HIN* या *HELP* लिखो
 
 उम्मीद है तुम सुरक्षित और खुश रहो! 🌾`,
     en: `✅ *Chat Closed*
 
 Start again anytime:
-📱 Type *HI* or *HELP*
+📱 Type *HIN* or *HELP*
 
 Take care and stay safe! 🌾`,
     hinglish: `✅ *Chat Band Ki Gayi*
 
 Kabhi bhi shuru kar sakta hai:
-📱 *HI* ya *HELP* type karo
+📱 *HIN* ya *HELP* type karo
 
 Apne aap ka dhyan rakho! 🌾`
-  }[lang] || 'Chat closed. Send HI or HELP to start again.'
+  }[lang] || 'Chat closed. Send HIN or HELP to start again.'
 }
 
 function isSelfStartMessage(text) {
@@ -1587,6 +1697,10 @@ async function findFarmerByPhone(phone) {
             f.preferred_language,
             f.district,
             f.village,
+            f.land_size,
+            f.annual_income,
+            to_jsonb(f)->>'soil_type' AS soil_type,
+            to_jsonb(f)->>'water_source' AS water_source,
             (
               SELECT c.name
               FROM farmer_crops fc
@@ -1628,6 +1742,186 @@ Main *KhedutMitra* hoon - Aapka Farm Assistant.
 
 📋 Help ke liye neeche se service chuno:`
   }[lang] || `Welcome, ${name}! Choose a service below.`
+}
+
+function getUnregisteredFarmerWelcome(lang) {
+  return {
+    gu: `🌾 *નમસ્તે! KhedutMitra માં આપનું સ્વાગત છે!* 🌾
+
+હું તમારો કૃષિ સહાયક છું - હવામાન, પાક, માટી, વીમા અને સરકારી યોજનાઓ બાબતે મદદ કરું છું.
+
+📋 *નીચેનામાંથી પસંદ કરો:*
+
+*1* 🛡️  પાક વીમા (PMFBY)
+*2* 💰 PM-કિસાન લાભ  
+*3* 🌦️  હવામાન અને ખેતી સલાહ
+*4* 📋 સરકારી યોજનાઓ
+*5* 👤 મારી પ્રોફાઇલ
+*6* 📞 અધિકારી સાથે વાત કરો
+
+_─────────────────_
+*⚠️ નોંધણી માટે:* કૃપા આપનો બેંક અધિકારી સાથે સંપર્ક કરો તમારા ખેતી વિગતો નોંધવા માટે. પછી આ સેવાઓ અધૂરી રીતે વાપરી શકશો.
+
+🌐 ભાષા: *GU* (Gujarati) | HIN (Hindi) | EN (English)`,
+    
+    hi: `🌾 *नमस्ते! KhedutMitra में आपका स्वागत है!* 🌾
+
+मैं आपका कृषि सहायक हूँ - मौसम, फसल, मिट्टी, बीमा और सरकारी योजनाओं में मदद करता हूँ।
+
+📋 *नीचे से चुनें:*
+
+*1* 🛡️  फसल बीमा (PMFBY)
+*2* 💰 पीएम-किसान लाभ
+*3* 🌦️  मौसम और फसल सलाह
+*4* 📋 सरकारी योजनाएं
+*5* 👤 मेरी प्रोफाइल
+*6* 📞 अधिकारी से बात करें
+
+_─────────────────_
+*⚠️ रजिस्ट्रेशन के लिए:* कृपया अपने बैंक अधिकारी से संपर्क करें अपनी खेती की जानकारी दर्ज करने के लिए। फिर ये सेवाएं पूरी तरह इस्तेमाल कर सकेंगे।
+
+🌐 भाषा: GU | *HIN* (हिंदी) | EN`,
+    
+    en: `🌾 *Hello! Welcome to KhedutMitra!* 🌾
+
+I'm your Farm Assistant - helping with weather, crops, soil, insurance, and government schemes.
+
+📋 *Choose below:*
+
+*1* 🛡️  Crop Insurance (PMFBY)
+*2* 💰 PM-Kisan Benefits
+*3* 🌦️  Weather & Farm Advice
+*4* 📋 Government Schemes
+*5* 👤 My Profile
+*6* 📞 Talk to Officer
+
+_─────────────────_
+*⚠️ To Register:* Please contact your bank officer to register your farming details. Then you can fully use these services.
+
+🌐 Language: GU | HIN | *EN* (English)`,
+    
+    hinglish: `🌾 *Namaste! KhedutMitra Mein Aapka Swagat Hai!* 🌾
+
+Main aapka farm assistant hoon - mausam, fasal, mitti, insurance aur government schemes mein madad deta hoon.
+
+📋 *Neeche se chuno:*
+
+*1* 🛡️  Fasal Bima (PMFBY)
+*2* 💰 PM-Kisan Labh
+*3* 🌦️  Mausam & Fasal Salah
+*4* 📋 Sarkari Yojnaye
+*5* 👤 Meri Profile
+*6* 📞 Officer Se Baat Karo
+
+_─────────────────_
+*⚠️ Registration Ke Liye:* Apne bank ke officer se contact karo apni farming details register karane ke liye. Phir in services ko poore tarah use kar sakte ho.
+
+🌐 Language: GU | HIN | EN`
+  }[lang] || 'Hello! Welcome to KhedutMitra. Choose an option (1-6) above or contact your bank officer to register.'
+}
+
+/**
+ * ─── SQL-DRIVEN DATA FETCHING ─────────────────────────────────────────────────
+ * These functions fetch fresh data from DB for each menu option (text-to-SQL)
+ */
+
+async function getFarmerInsuranceData(farmerId) {
+  const result = await pool.query(
+    `SELECT 
+       f.id,
+       f.name,
+       COALESCE((to_jsonb(f)->>'has_crop_insurance')::boolean, false) AS has_crop_insurance,
+       (to_jsonb(f)->>'insurance_expiry_date')::date AS insurance_expiry_date,
+       (to_jsonb(f)->>'insurance_provider')::text AS insurance_provider,
+       (to_jsonb(f)->>'insurance_policy_number')::text AS policy_number,
+       (
+         SELECT c.name
+         FROM farmer_crops fc
+         JOIN crops c ON c.id = fc.crop_id
+         WHERE fc.farmer_id = f.id
+         ORDER BY fc.created_at DESC
+         LIMIT 1
+       ) AS primary_crop,
+       f.district
+     FROM farmers f
+     WHERE f.id = $1`,
+    [farmerId]
+  )
+  return result.rows[0] || {}
+}
+
+async function getFarmerPmkisanData(farmerId) {
+  const result = await pool.query(
+    `SELECT 
+       f.id,
+       f.name,
+       f.district,
+       f.village,
+       COALESCE((to_jsonb(f)->>'pm_kisan_enrolled')::boolean, false) AS pm_kisan_enrolled,
+       (to_jsonb(f)->>'pm_kisan_registration_date')::date AS pm_kisan_registration_date,
+       (to_jsonb(f)->>'aadhar_linked_bank')::boolean AS aadhar_linked,
+       (to_jsonb(f)->>'last_pm_kisan_installment')::date AS last_installment_date
+     FROM farmers f
+     WHERE f.id = $1`,
+    [farmerId]
+  )
+  return result.rows[0] || {}
+}
+
+function buildInsuranceSQLMessage(insuranceData, conv, lang) {
+  const crop = insuranceData.primary_crop || conv.primary_crop || 'crop';
+  const district = insuranceData.district || conv.district || 'your region';
+  
+  if (insuranceData.has_crop_insurance) {
+    const expiryDate = formatDateForDisplay(insuranceData.insurance_expiry_date, lang);
+    const daysLeft = insuranceData.insurance_expiry_date ? getDaysUntil(insuranceData.insurance_expiry_date) : 'soon';
+    const provider = insuranceData.insurance_provider || 'Insurance provider';
+    const policyNo = insuranceData.policy_number ? ` (Policy: ${insuranceData.policy_number})` : '';
+    
+    if (lang === 'gu') {
+      return `✅ પાક વીમો સ્થિતિ: સક્રિય\n\n🌾 પાક: ${crop}\n📅 સમાપ્તિ: ${expiryDate} (${daysLeft} દિવસ બાકી)\n🏢 પ્રદાતા: ${provider}${policyNo}\n\n💡 Renewal માટે બેંક શાખામાં આધાર અને 7/12 લાવો.`;
+    }
+    if (lang === 'hi') {
+      return `✅ फसल बीमा स्थिति: सक्रिय\n\n🌾 फसल: ${crop}\n📅 समाप्ति: ${expiryDate} (${daysLeft} दिन बाकी)\n🏢 प्रदाता: ${provider}${policyNo}\n\n💡 Renewal के लिए बैंक शाखा में आधार और 7/12 लाएं।`;
+    }
+    return `✅ Crop Insurance Status: Active\n\n🌾 Crop: ${crop}\n📅 Expires: ${expiryDate} (${daysLeft} days left)\n🏢 Provider: ${provider}${policyNo}\n\n💡 For renewal, bring Aadhaar and land proof to bank branch.`;
+  }
+  
+  // Not insured - show PMFBY registration info
+  if (lang === 'gu') {
+    return `📋 પાક વીમો સ્થિતિ: નોંધાયેલો નથી\n\n🌾 પાક: ${crop}\n📍 જીલ્લો: ${district}\n\n💡 PMFBY માર્ગે પાક વીમો લો:\n✅ Kharif: જુલાઈ 31 સુધી\n✅ Rabi: જાન્યુઆરી 31 સુધી\n\n📄 જરુરી: આધાર, બેંક પાસબુક, 7/12\n🏢 કોણે ખર્ચ: FREE`;
+  }
+  if (lang === 'hi') {
+    return `📋 फसल बीमा स्थिति: पंजीकृत नहीं\n\n🌾 फसल: ${crop}\n📍 जिला: ${district}\n\n💡 PMFBY के तहत फसल बीमा लें:\n✅ Kharif: 31 जुलाई तक\n✅ Rabi: 31 जनवरी तक\n\n📄 जरूरी: आधार, बैंक पासबुक, 7/12\n🏢 खर्च: FREE`;
+  }
+  return `📋 Crop Insurance Status: Not Registered\n\n🌾 Crop: ${crop}\n📍 District: ${district}\n\n💡 Get crop insurance under PMFBY:\n✅ Kharif: by July 31\n✅ Rabi: by Jan 31\n\n📄 Required: Aadhaar, passbook, land proof\n🏢 Cost: FREE`;
+}
+
+function buildPmKisanSQLMessage(pmkisanData, conv, lang) {
+  const district = pmkisanData.district || conv.district || 'your district';
+  
+  if (pmkisanData.pm_kisan_enrolled) {
+    const regDate = pmkisanData.pm_kisan_registration_date ? formatDateForDisplay(pmkisanData.pm_kisan_registration_date, lang) : 'a few months ago';
+    const lastInstallment = pmkisanData.last_installment_date ? formatDateForDisplay(pmkisanData.last_installment_date, lang) : 'recently';
+    const aadhaarStatus = pmkisanData.aadhar_linked ? (lang === 'gu' ? '✅ હાં' : lang === 'hi' ? '✅ हाँ' : '✅ Yes') : (lang === 'gu' ? '⚠️ ના' : lang === 'hi' ? '⚠️ नहीं' : '⚠️ No');
+    
+    if (lang === 'gu') {
+      return `✅ PM-KISAN સ્થિતિ: નોંધાયેલા છો\n\n📅 નોંધણી: ${regDate}\n💰 આખરી કિસ્ત: ${lastInstallment}\n✅ Aadhaar જોડાયેલો: ${aadhaarStatus}\n\n💡 આગામી કિસ્ત:\n🔹 eKYC અપડેટ ચકાસો\n🔹 બેંક એકાઉન્ટ Aadhaar સાથે લિંક હોવું જોઈએ\n🔹 Status: pmkisan.gov.in પર ચકાસો`;
+    }
+    if (lang === 'hi') {
+      return `✅ PM-KISAN स्थिति: नामांकित हैं\n\n📅 पंजीकरण: ${regDate}\n💰 आखिरी किस्त: ${lastInstallment}\n✅ Aadhaar लिंक: ${aadhaarStatus}\n\n💡 आगामी किस्त के लिए:\n🔹 eKYC स्थिति जांचें\n🔹 बैंक खाता Aadhaar से जुड़ा होना चाहिए\n🔹 स्थिति देखें: pmkisan.gov.in`;
+    }
+    return `✅ PM-KISAN Status: Enrolled\n\n📅 Registered: ${regDate}\n💰 Last Installment: ${lastInstallment}\n✅ Aadhaar Linked: ${aadhaarStatus}\n\n💡 For next installment:\n🔹 Check eKYC status\n🔹 Bank account must be Aadhaar-linked\n🔹 View status: pmkisan.gov.in`;
+  }
+  
+  // Not enrolled
+  if (lang === 'gu') {
+    return `📋 PM-KISAN સ્થિતિ: નોંધણી નથી\n\n📍 જીલ્લો: ${district}\n\n💡 PM-KISAN લાભ માટે નોંધણી કરો:\n✅ ₹2000/હપ્તા (૩ હપ્તામાં ₹6000/વર્ષે)\n✅ કોણે પણ કૃષક પરિવાર\n\n📄 જરુરી કાગળ:\n🔹 આધાર (Aadhaar)\n🔹 બેંક ખાતો નંબર\n🔹 જમીન પુરાવો (7/12)\n\n🏢 નોંધણી: CSC કેન્દ્ર અથવા બેંક શાખામાં (FREE)`;
+  }
+  if (lang === 'hi') {
+    return `📋 PM-KISAN स्थिति: पंजीकृत नहीं\n\n📍 जिला: ${district}\n\n💡 PM-KISAN लाभ के लिए पंजीकरण करें:\n✅ ₹2000/किस्त (3 किस्त में ₹6000/साल)\n✅ कोई भी farming family\n\n📄 जरूरी दस्तावेज:\n🔹 आधार (Aadhaar)\n🔹 बैंक खाता नंबर\n🔹 भूमि प्रमाण (7/12)\n\n🏢 पंजीकरण: CSC center या bank branch में (FREE)`;
+  }
+  return `📋 PM-KISAN Status: Not Registered\n\n📍 District: ${district}\n\n💡 Register for PM-KISAN benefits:\n✅ ₹2000/installment (3 installments = ₹6000/year)\n✅ For all farming families\n\n📄 Required documents:\n🔹 Aadhaar\n🔹 Bank Account Number\n🔹 Land Proof (7/12)\n\n🏢 Registration: CSC center or bank (FREE)`;
 }
 
 module.exports = {

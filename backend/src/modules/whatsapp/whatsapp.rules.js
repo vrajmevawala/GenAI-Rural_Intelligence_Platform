@@ -35,7 +35,8 @@ const WEATHER_ONLY_KEYWORDS = [
   'rain tomorrow', 'tomorrow rain', 'rain kal', 'kal rain',
   'humidity', 'wind speed', 'windspeed', 'clouds', 'sunny',
   'rainy', 'cloudy', 'stormy', 'forecast aaj', 'mausam',
-  'barsat', 'varsh', 'weather report', 'weather forecast'
+  'barsat', 'varsh', 'weather report', 'weather forecast',
+  'weather for', 'weather of', 'weather nu', 'weather ane'
 ];
 
 const DISEASE_KEYWORDS = [

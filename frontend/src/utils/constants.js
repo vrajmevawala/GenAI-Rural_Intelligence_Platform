@@ -21,6 +21,8 @@ export const ALERT_TYPES = [
 
 export const ALERT_STATUSES = ['pending', 'sent']
 
+export const ALERT_DOMAINS = ['financial', 'agriculture']
+
 export const LANGUAGES = [
   { value: 'gu', label: 'ગુજરાતી (Gujarati)' },
   { value: 'hi', label: 'हिन्दी (Hindi)' },

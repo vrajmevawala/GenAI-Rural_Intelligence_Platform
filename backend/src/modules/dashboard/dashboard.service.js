@@ -1,4 +1,5 @@
 const { pool } = require("../../config/db");
+const { getAlertDomain } = require("../../utils/alertTypes");
 
 let farmerColumnsCache = null;
 
@@ -118,12 +119,24 @@ async function getSummary(institutionId) {
     GROUP BY risk_level
   `);
 
-  // Alert breakdown by reason
+  // Alert breakdown by domain (financial/agriculture)
   const breakdownRes = await pool.query(`
-    SELECT reason as name, COUNT(*)::int as value
+    SELECT alert_type as type, COUNT(*)::int as value
     FROM alerts
-    GROUP BY reason
+    GROUP BY alert_type
   `);
+
+  const alertBreakdownByDomain = breakdownRes.rows.reduce((acc, row) => {
+    const domain = getAlertDomain(row.type);
+    const value = Number(row.value || 0);
+    acc[domain] = (acc[domain] || 0) + value;
+    return acc;
+  }, {});
+
+  const alertBreakdown = [
+    { type: "financial", value: alertBreakdownByDomain.financial || 0 },
+    { type: "agriculture", value: alertBreakdownByDomain.agriculture || 0 }
+  ];
   
   // Average FVI Score (Latest per farmer)
   const avgScoreRes = await pool.query(`
@@ -162,7 +175,7 @@ async function getSummary(institutionId) {
     avg_score: avgScoreRes.rows[0]?.avg_score || 0,
     districts_count: districtsRes.rows[0].count,
     distribution: distributionRes.rows,
-    alertBreakdown: breakdownRes.rows,
+    alertBreakdown,
     highRiskFarmers: highRiskRes.rows,
     upcomingExpiries,
     recentActivity

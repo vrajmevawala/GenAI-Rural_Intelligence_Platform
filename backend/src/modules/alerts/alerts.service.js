@@ -1,13 +1,22 @@
-const { v4: uuidv4 } = require("uuid");
+const { v4: uuidv4, validate: isUuid } = require("uuid");
 const { pool } = require("../../config/db");
 const { AppError } = require("../../middleware/errorHandler");
 const { generateAlert } = require("../../utils/alertGenerator");
-const { ALERT_TYPES } = require("../../utils/alertTypes");
+const {
+  ALERT_TYPES,
+  ALERT_DOMAINS,
+  ALERT_TYPES_BY_DOMAIN,
+  getAlertDomain
+} = require("../../utils/alertTypes");
 
 async function listAlerts(filters = {}) {
-  const { farmer_id, priority, status, alert_type, limit = 50 } = filters;
+  const { farmer_id, priority, status, alert_type, alert_domain, limit = 50 } = filters;
   const where = [];
   const values = [];
+
+  if (farmer_id && !isUuid(String(farmer_id))) {
+    throw new AppError("Invalid farmer_id format", 400, "INVALID_INPUT");
+  }
 
   if (farmer_id) {
     values.push(farmer_id);
@@ -25,6 +34,13 @@ async function listAlerts(filters = {}) {
     values.push(alert_type);
     where.push(`a.alert_type = $${values.length}`);
   }
+  if (alert_domain) {
+    const normalizedDomain = String(alert_domain).toLowerCase();
+    if (Object.values(ALERT_DOMAINS).includes(normalizedDomain)) {
+      values.push(ALERT_TYPES_BY_DOMAIN[normalizedDomain]);
+      where.push(`a.alert_type = ANY($${values.length})`);
+    }
+  }
 
   values.push(Number(limit) > 0 ? Number(limit) : 50);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -36,8 +52,19 @@ async function listAlerts(filters = {}) {
     ORDER BY a.created_at DESC
     LIMIT $${values.length}
   `;
-  const { rows } = await pool.query(sql, values);
-  return { alerts: rows };
+  try {
+    const { rows } = await pool.query(sql, values);
+    const alerts = rows.map((row) => ({
+      ...row,
+      alert_domain: getAlertDomain(row.alert_type)
+    }));
+    return { alerts, total: alerts.length };
+  } catch (err) {
+    if (err?.code === "22P02") {
+      throw new AppError("Invalid query filter format", 400, "INVALID_INPUT");
+    }
+    throw err;
+  }
 }
 
 async function createAlert(payload) {
@@ -66,7 +93,11 @@ async function createAlert(payload) {
     payload.ai_generated !== false
   ];
   const { rows } = await pool.query(sql, values);
-  return rows[0];
+  const alert = rows[0];
+  return {
+    ...alert,
+    alert_domain: getAlertDomain(alert.alert_type)
+  };
 }
 
 async function generateFarmerAlert(farmerId, organizationId, alertType, language, contextData = {}) {
@@ -104,7 +135,10 @@ async function updateAlertStatus(user, id, status, ip) {
   const sql = "UPDATE alerts SET status = $1 WHERE id = $2 RETURNING *";
   const { rows } = await pool.query(sql, [status, id]);
   if (rows.length === 0) throw new AppError("Alert not found", 404);
-  return rows[0];
+  return {
+    ...rows[0],
+    alert_domain: getAlertDomain(rows[0].alert_type)
+  };
 }
 
 async function getPendingHighUrgent(user) {
@@ -117,7 +151,10 @@ async function getPendingHighUrgent(user) {
     LIMIT 5
   `;
   const { rows } = await pool.query(sql);
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    alert_domain: getAlertDomain(row.alert_type)
+  }));
 }
 
 module.exports = {

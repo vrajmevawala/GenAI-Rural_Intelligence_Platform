@@ -9,10 +9,13 @@ async function run() {
     await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
 
     const migrationDir = path.join(__dirname, 'migrations');
-    const migrationFiles = fs
+    const discoveredFiles = fs
       .readdirSync(migrationDir)
       .filter((f) => f.endsWith('.sql'))
       .sort();
+    const migrationFiles = discoveredFiles.includes('001_schema.sql')
+      ? ['001_schema.sql']
+      : discoveredFiles;
 
     for (const file of migrationFiles) {
       console.log(`Running ${file}...`);

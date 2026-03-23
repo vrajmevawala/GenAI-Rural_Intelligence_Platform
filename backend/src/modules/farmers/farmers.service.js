@@ -26,6 +26,13 @@ function normalizePhoneNumber(phone) {
   return trimmed;
 }
 
+function nullIfEmpty(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  return value;
+}
+
 function mapFarmerPayload(payload = {}) {
   return {
     name: payload.name,
@@ -71,6 +78,14 @@ function mapPostgresError(err) {
 
   if (err.code === "22P02") {
     return new AppError("Invalid input format", 400, "VALIDATION_ERROR");
+  }
+
+  if (err.code === "22007") {
+    return new AppError("Invalid date format", 400, "VALIDATION_ERROR");
+  }
+
+  if (err.code === "23514") {
+    return new AppError("Invalid field value", 400, "VALIDATION_ERROR");
   }
 
   if (err.code === "23503") {
@@ -392,10 +407,22 @@ async function updateFarmer(id, payload) {
 
   const normalizedPayload = {
     ...payload,
+    phone: payload.phone ? normalizePhoneNumber(payload.phone) : payload.phone,
     land_size: payload.land_size ?? payload.land_area_acres,
     annual_income: payload.annual_income ?? payload.annual_income_inr,
     loan_amount_inr: payload.loan_amount_inr ?? payload.loan_amount,
-    language: payload.language ?? payload.preferred_language
+    language: payload.language ?? payload.preferred_language,
+    secondary_crop: nullIfEmpty(payload.secondary_crop),
+    loan_type: nullIfEmpty(payload.loan_type),
+    loan_due_date: nullIfEmpty(payload.loan_due_date),
+    insurance_expiry_date: nullIfEmpty(payload.insurance_expiry_date),
+    bank_account_number: nullIfEmpty(payload.bank_account_number),
+    land_size: nullIfEmpty(payload.land_size ?? payload.land_area_acres),
+    annual_income: nullIfEmpty(payload.annual_income ?? payload.annual_income_inr),
+    loan_amount_inr: nullIfEmpty(payload.loan_amount_inr ?? payload.loan_amount),
+    family_size: nullIfEmpty(payload.family_size),
+    latitude: nullIfEmpty(payload.latitude),
+    longitude: nullIfEmpty(payload.longitude)
   };
 
   Object.keys(normalizedPayload).forEach((key) => {
@@ -416,13 +443,19 @@ async function updateFarmer(id, payload) {
     RETURNING *
   `;
 
-  const { rows } = await pool.query(sql, values);
-  if (rows.length === 0) {
-    throw new AppError("Farmer not found", 404, "NOT_FOUND");
-  }
+  try {
+    const { rows } = await pool.query(sql, values);
+    if (rows.length === 0) {
+      throw new AppError("Farmer not found", 404, "NOT_FOUND");
+    }
 
-  await syncPrimaryCropForFarmer(id, payload.primary_crop);
-  return getFarmerById(id);
+    await syncPrimaryCropForFarmer(id, payload.primary_crop);
+    return getFarmerById(id);
+  } catch (err) {
+    const mappedError = mapPostgresError(err);
+    if (mappedError) throw mappedError;
+    throw err;
+  }
 }
 
 async function deleteFarmer(id) {

@@ -29,3 +29,10 @@ export const getWhatsAppMessages = (conversationId) =>
  */
 export const testWhatsAppIntegration = (testPhone) =>
   api.post('/whatsapp/test', { testPhone })
+
+/**
+ * Send an alert as WhatsApp MP3 voice + text.
+ * audioBase64 should be data URL or plain base64.
+ */
+export const sendAlertVoiceMp3 = (alertId, { audioBase64, text } = {}) =>
+  api.post(`/whatsapp/send-alert-voice/${alertId}`, { audioBase64, text })

@@ -7,10 +7,13 @@ dotenv.config();
 
 async function runMigration() {
   const migrationDir = path.join(__dirname, "migrations");
-  const migrationFiles = fs
+  const discoveredFiles = fs
     .readdirSync(migrationDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
+  const migrationFiles = discoveredFiles.includes("001_schema.sql")
+    ? ["001_schema.sql"]
+    : discoveredFiles;
 
   const client = await pool.connect();
 

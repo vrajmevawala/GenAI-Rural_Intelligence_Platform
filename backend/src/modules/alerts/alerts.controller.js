@@ -3,12 +3,13 @@ const alertsService = require("./alerts.service");
 
 async function listAlerts(req, res, next) {
   try {
-    const { farmer_id, priority, status, alert_type, limit } = req.query;
+    const { farmer_id, priority, status, alert_type, alert_domain, limit } = req.query;
     const data = await alertsService.listAlerts({
       farmer_id,
       priority,
       status,
       alert_type,
+      alert_domain,
       limit: Number(limit || 50)
     });
     res.json(successResponse(data, "Alerts retrieved"));

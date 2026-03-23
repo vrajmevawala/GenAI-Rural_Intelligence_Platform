@@ -10,11 +10,11 @@ import StatCard from '@/components/dashboard/StatCard'
 import Button from '@/components/ui/Button'
 import EmptyState from '@/components/ui/EmptyState'
 import { SkeletonCard } from '@/components/ui/Skeleton'
-import { ALERT_PRIORITIES, ALERT_STATUSES } from '@/utils/constants'
+import { ALERT_PRIORITIES, ALERT_STATUSES, ALERT_DOMAINS } from '@/utils/constants'
 import { cn } from '@/utils/cn'
 
 export default function AlertsPage() {
-  const [filters, setFilters] = useState({ priority: '', status: '' })
+  const [filters, setFilters] = useState({ priority: '', status: '', alert_domain: '' })
   const [showModal, setShowModal] = useState(false)
   const { user } = useAuthStore()
   const { t } = useLanguage()
@@ -47,6 +47,14 @@ export default function AlertsPage() {
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="w-4 h-4 text-gray-400" />
+        {['', ...ALERT_DOMAINS].map(d => (
+          <button key={d} onClick={() => setFilters(f => ({ ...f, alert_domain: d }))}
+            className={cn('px-2.5 py-1.5 rounded-lg text-xs font-medium transition capitalize',
+              filters.alert_domain === d ? 'bg-[#0F4C35] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+            {d ? t(`alerts.${d}`) || d : t('alerts.all_categories')}
+          </button>
+        ))}
+        <div className="w-px h-5 bg-gray-200 mx-1" />
         {['', ...ALERT_PRIORITIES].map(p => (
           <button key={p} onClick={() => setFilters(f => ({ ...f, priority: p }))}
             className={cn('px-2.5 py-1.5 rounded-lg text-xs font-medium transition capitalize',
