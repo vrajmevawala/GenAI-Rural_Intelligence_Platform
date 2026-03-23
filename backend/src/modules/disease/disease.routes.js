@@ -22,4 +22,14 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+router.post("/detect-disease", async (req, res, next) => {
+  try {
+    const { image_url } = req.body;
+    const result = await service.detectDiseaseFromUrl(image_url);
+    res.status(200).json(successResponse(result, "Disease detection completed"));
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
