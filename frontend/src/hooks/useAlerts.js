@@ -6,15 +6,12 @@ import toast from 'react-hot-toast'
 import { useEffect } from 'react'
 
 export function useAlerts(params = {}) {
-  const farmerId = params?.farmer_id
-  const isValidFarmerId = !farmerId || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(farmerId))
-
   return useQuery({
     queryKey: ['alerts', params],
     queryFn: () => alertsApi.getAlerts(params).then((r) => r.data?.data || r.data),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
-    enabled: isValidFarmerId,
+    enabled: true,
   })
 }
 

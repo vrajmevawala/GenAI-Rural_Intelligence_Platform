@@ -35,7 +35,7 @@ export default function AlertsPage() {
           <p className="text-sm text-gray-500 mt-0.5">{t('alerts.subtitle')}</p>
         </div>
         <div className="flex gap-2">
-          {canBulk && <Button variant="secondary" icon={Send} onClick={() => bulkGen.mutate()} loading={bulkGen.isPending}>{t('alerts.bulk_generate')}</Button>}
+          {/* {canBulk && <Button variant="secondary" icon={Send} onClick={() => bulkGen.mutate()} loading={bulkGen.isPending}>{t('alerts.bulk_generate')}</Button>} */}
           <Button icon={Plus} onClick={() => setShowModal(true)}>{t('alerts.generate_alert')}</Button>
         </div>
       </div>

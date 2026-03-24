@@ -1,4 +1,4 @@
-const { v4: uuidv4, validate: isUuid } = require("uuid");
+const { v4: uuidv4 } = require("uuid");
 const { pool } = require("../../config/db");
 const { AppError } = require("../../middleware/errorHandler");
 const { generateAlert } = require("../../utils/alertGenerator");
@@ -13,10 +13,6 @@ async function listAlerts(filters = {}) {
   const { farmer_id, priority, status, alert_type, alert_domain, limit = 50 } = filters;
   const where = [];
   const values = [];
-
-  if (farmer_id && !isUuid(String(farmer_id))) {
-    throw new AppError("Invalid farmer_id format", 400, "INVALID_INPUT");
-  }
 
   if (farmer_id) {
     values.push(farmer_id);

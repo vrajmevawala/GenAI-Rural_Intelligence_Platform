@@ -3,9 +3,9 @@ const alertsService = require("./alerts.service");
 
 async function listAlerts(req, res, next) {
   try {
-    const { farmer_id, priority, status, alert_type, alert_domain, limit } = req.query;
+    const { farmer_id, farmerId, priority, status, alert_type, alert_domain, limit } = req.query;
     const data = await alertsService.listAlerts({
-      farmer_id,
+      farmer_id: farmer_id ?? farmerId,
       priority,
       status,
       alert_type,
