@@ -1156,7 +1156,7 @@ async function handleProfileView(conv, input, language) {
     message = await formatProfileMessage(profile, lang)
   }
 
-  const finalMessage = `${String(message || '').trim()}\n0 for menu | 6 for officer help`
+  const finalMessage = `${String(message || '').trim()}\n\n0 for menu | 6 for officer help`
 
   if (typeof input !== 'undefined') {
     return { message: finalMessage, nextStage: 'menu' }
@@ -1278,16 +1278,152 @@ function resolveMenuSelectionIntent(text) {
 async function handleOfficerConnect(conv, input, language) {
   const lang = language || conv.language || 'gu'
   try {
-    await generateAlert({
+    // Fetch farmer data to get organization_id if not in conversation
+    let organizationId = conv.organization_id
+    if (!organizationId) {
+      const farmerResult = await pool.query(
+        `SELECT organization_id FROM farmers WHERE id = $1`,
+        [conv.farmer_id]
+      )
+      if (farmerResult.rows.length > 0) {
+        organizationId = farmerResult.rows[0].organization_id
+      }
+    }
+
+    // Create alert record for alerts page so admins can see bot support requests
+    const alertMessage = {
+      gu: `✅ બોટ સપોર્ટ વિનંતી - ${conv.farmer_name || 'Farmer'} (${new Date().toLocaleString('gu-IN')})`,
+      hi: `✅ बॉट सपोर्ट अनुरोध - ${conv.farmer_name || 'Farmer'} (${new Date().toLocaleString('hi-IN')})`,
+      en: `✅ Bot Support Request - ${conv.farmer_name || 'Farmer'} (${new Date().toLocaleString('en-IN')})`,
+      hinglish: `✅ Bot Support Request - ${conv.farmer_name || 'Farmer'} (${new Date().toLocaleString('en-IN')})`
+    }
+
+    await pool.query(
+      `INSERT INTO alerts (id, farmer_id, organization_id, alert_type, priority, language, message, message_text, reason, status, ai_generated, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`,
+      [
+        require('uuid').v4(),
+        conv.farmer_id,
+        organizationId,
+        'custom',
+        'medium',
+        lang,
+        alertMessage[lang] || alertMessage.en,
+        `Bot Support Request - ${conv.farmer_name}`,
+        'Farmer requested bot callback support',
+        'sent',
+        false
+      ]
+    )
+
+    logger.info('Bot support request alert created', {
       farmerId: conv.farmer_id,
-      organizationId: conv.organization_id,
-      alertType: ALERT_TYPES.OFFICER_CALLBACK,
+      organizationId: organizationId,
+      farmerName: conv.farmer_name,
+      farmerPhone: conv.phone_number,
       language: lang,
-      contextData: {
-        farmerConcern: input || 'Farmer requested officer callback via WhatsApp'
-      },
-      sendWhatsAppMessage: false
+      action: 'whatsapp.bot.support.alert.created'
     })
+
+    // Call n8n webhook with farmer data
+    const webhookUrl = process.env.N8N_OFFICER_WEBHOOK_URL || 'https://vrajmevawala.app.n8n.cloud/webhook-test/e12bb2f7-7d92-4dd9-b96a-b0bb7b83cacd'
+    
+    // Format loan due date
+    let loanDueInfo = 'N/A'
+    if (conv.loan_due_date) {
+      const dueDate = new Date(conv.loan_due_date)
+      const daysUntilDue = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24))
+      loanDueInfo = `${dueDate.toLocaleDateString('en-IN')} (${daysUntilDue > 0 ? daysUntilDue + ' days remaining' : 'overdue'})`
+    }
+
+    // Format insurance details
+    let insuranceInfo = 'Not enrolled'
+    if (conv.has_crop_insurance) {
+      insuranceInfo = 'Active'
+      if (conv.insurance_expiry_date) {
+        const expiryDate = new Date(conv.insurance_expiry_date)
+        insuranceInfo += ` - Expires: ${expiryDate.toLocaleDateString('en-IN')}`
+      }
+    }
+
+    // Get government schemes (fetch from database)
+    let governmentSchemes = 'N/A'
+    try {
+      const schemeResult = await pool.query(
+        `SELECT s.name 
+         FROM farmer_schemes fs
+         JOIN schemes s ON s.id = fs.scheme_id
+         WHERE fs.farmer_id = $1 AND fs.status = 'active'
+         ORDER BY fs.created_at DESC`,
+        [conv.farmer_id]
+      )
+      if (schemeResult.rows.length > 0) {
+        governmentSchemes = schemeResult.rows.map(r => r.name).join(', ')
+      }
+    } catch (err) {
+      logger.warn('Failed to fetch farmer schemes', {
+        farmerId: conv.farmer_id,
+        error: err.message
+      })
+    }
+
+    const payloadData = {
+      farmer_name: conv.farmer_name || 'N/A',
+      farmer_phone: conv.phone_number || 'N/A',
+      farmer_location: conv.village || 'N/A',
+      farmer_crop: conv.primary_crop || 'N/A',
+      farmer_loan_due_date: loanDueInfo,
+      farmer_insurance_details: insuranceInfo,
+      farmer_government_schemes: governmentSchemes
+    }
+
+    try {
+      const sendWebhook = async (url) => fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payloadData)
+      })
+
+      let response = await sendWebhook(webhookUrl)
+
+      // n8n test webhooks can return 404 if workflow is active-only on /webhook path.
+      if (!response.ok && response.status === 404 && webhookUrl.includes('/webhook-test/')) {
+        const fallbackUrl = webhookUrl.replace('/webhook-test/', '/webhook/')
+        logger.warn('N8n webhook test path not found, retrying with production path', {
+          farmerId: conv.farmer_id,
+          originalUrl: webhookUrl,
+          fallbackUrl,
+          action: 'whatsapp.officer.webhook.retry'
+        })
+        response = await sendWebhook(fallbackUrl)
+      }
+
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => '')
+        logger.warn('N8n webhook call failed', {
+          farmerId: conv.farmer_id,
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: responseText?.slice(0, 500),
+          webhookUrl,
+          action: 'whatsapp.officer.webhook.failed'
+        })
+      } else {
+        logger.info('N8n webhook called successfully', {
+          farmerId: conv.farmer_id,
+          action: 'whatsapp.officer.webhook.success',
+          payload: payloadData
+        })
+      }
+    } catch (webhookErr) {
+      logger.warn('N8n webhook call error', {
+        farmerId: conv.farmer_id,
+        error: webhookErr.message,
+        action: 'whatsapp.officer.webhook.error'
+      })
+    }
   } catch (err) {
     logger.warn('Officer callback alert generation failed, returning confirmation anyway', {
       farmerId: conv.farmer_id,
@@ -1296,7 +1432,7 @@ async function handleOfficerConnect(conv, input, language) {
     })
   }
 
-  const message = `${getOfficerConfirmation(lang)}\n0 for menu | 6 for officer help`
+  const message = `${getOfficerConfirmation(lang)}\n\n0 for menu | 6 for officer help`
   if (typeof input !== 'undefined') {
     return { message, nextStage: 'done' }
   }
@@ -1498,47 +1634,31 @@ function getProfileNotFoundMsg(lang) {
 
 function getOfficerConfirmation(lang) {
   return {
-    gu: `✅ *અધિકારી કાલ્બેક વિનંતી સ્વીકૃત*
+    gu: `✅ *કૉલબેક વિનંતી સ્વીકૃત*
 
-📞 બેંક અધિકારી તમને 2 કલાક માં કોલ કરશે.
+📞 KhedutMitra Bot તમને 2 કલાક માં કૉલ કરશે.
 
-⏰ *કામના સમય:*
-સોમવાર - શનિવાર
-સવારે 9:00 - સાંજે 5:00
+👤 તમારો ફોન પાસે રાખો.
+તમે ઑફલાઇન હો તો બોટ વૉઇસમેલ મૂકશે.`,
+    hi: `✅ *कॉलबैक अनुरोध स्वीकृत*
 
-👤 તમારા ફોન નંબર પર નજર રાખો.
-તમે ઑફલાઇન હોય તો ફોન માં સંદેશ છોડશે`,
-    hi: `✅ *अधिकारी कॉलबैक अनुरोध स्वीकृत*
+📞 KhedutMitra Bot आपको 2 घंटे के भीतर सीधे कॉल करेगा।
 
-📞 बैंक अधिकारी 2 घंटे में आपको कॉल करेगा।
+👤 अपना फोन पास रखें।
+यदि आप ऑफलाइन हैं तो बॉट वॉइसमेल छोड़ेगा।`,
+    en: `✅ *Callback Request Accepted*
 
-⏰ *कार्य समय:*
-सोमवार - शनिवार
-सुबह 9:00 - शाम 5:00
-
-👤 अपने फोन पर नज़र रखें।
-यदि आप ऑफलाइन हैं तो वॉयस मैसेज छोड़ेंगे।`,
-    en: `✅ *Officer Callback Request Accepted*
-
-📞 Bank officer will call you within 2 hours.
-
-⏰ *Working Hours:*
-Monday - Saturday
-9:00 AM - 5:00 PM
+📞 KhedutMitra Bot will call you directly within 2 hours.
 
 👤 Keep your phone handy.
-We'll leave a voicemail if you're offline.`,
-    hinglish: `✅ *Officer Callback Request Accepted*
+If you're offline, the bot will leave a voicemail.`,
+    hinglish: `✅ *Callback Request Accepted*
 
-📞 Bank officer 2 ghante mein call karega.
+📞 KhedutMitra Bot aapko 2 ghante ke andar seedha call karega.
 
-⏰ *Kaam ka Samay:*
-Somvar - Shanivar
-9:00 AM - 5:00 PM
-
-👤 Apna phone idle rakhna.
-Offline ho to voicemail chhod denge.`
-  }[lang] || 'Officer will contact you soon.'
+👤 Apna phone paas rakhna.
+Agar offline ho to bot voicemail chhod dega.`
+  }[lang] || 'KhedutMitra Bot will call you soon.'
 }
 
 function getNoSessionMessage() {
@@ -1580,11 +1700,11 @@ function buildCropSoilDynamicMessage(profile, lang) {
 
 function getOutOfScopeMessage(lang) {
   return {
-    gu: 'હું કૃષિ, હવામાન, પાક, માટી, વીમા, યોજના અને ખેડૂત નાણાંકીય મદદ વિષય પર જ મદદ કરું છું. કૃપા કરીને સંબંધિત પ્રશ્ન પૂછો.\n0 for menu | 6 for officer help',
-    hi: 'मैं केवल कृषि, मौसम, फसल, मिट्टी, बीमा, योजना और किसान वित्त से जुड़े सवालों में मदद करता हूँ। कृपया संबंधित प्रश्न पूछें।\n0 for menu | 6 for officer help',
-    en: 'I can help only with farming, weather, crop/soil, insurance, schemes, and farmer finance topics. Please ask a related question.\n0 for menu | 6 for officer help',
-    hinglish: 'Main sirf farming, weather, crop/soil, insurance, schemes aur farmer finance topics mein help karta hoon. Related question pucho.\n0 for menu | 6 for officer help'
-  }[lang] || 'I can help only with farming and farmer finance topics.\n0 for menu | 6 for officer help'
+    gu: 'હું કૃષિ, હવામાન, પાક, માટી, વીમા, યોજના અને ખેડૂત નાણાંકીય મદદ વિષય પર જ મદદ કરું છું. કૃપા કરીને સંબંધિત પ્રશ્ન પૂછો.\n\n0 for menu | 6 for officer help',
+    hi: 'मैं केवल कृषि, मौसम, फसल, मिट्टी, बीमा, योजना और किसान वित्त से जुड़े सवालों में मदद करता हूँ। कृपया संबंधित प्रश्न पूछें।\n\n0 for menu | 6 for officer help',
+    en: 'I can help only with farming, weather, crop/soil, insurance, schemes, and farmer finance topics. Please ask a related question.\n\n0 for menu | 6 for officer help',
+    hinglish: 'Main sirf farming, weather, crop/soil, insurance, schemes aur farmer finance topics mein help karta hoon. Related question pucho.\n\n0 for menu | 6 for officer help'
+  }[lang] || 'I can help only with farming and farmer finance topics.\n\n0 for menu | 6 for officer help'
 }
 
 function getGenericFailureReply(lang) {
@@ -1760,7 +1880,7 @@ function getUnregisteredFarmerWelcome(lang) {
 *6* 📞 અધિકારી સાથે વાત કરો
 
 _─────────────────_
-*⚠️ નોંધણી માટે:* કૃપા આપનો બેંક અધિકારી સાથે સંપર્ક કરો તમારા ખેતી વિગતો નોંધવા માટે. પછી આ સેવાઓ અધૂરી રીતે વાપરી શકશો.
+*⚠️ નોંધણી માટે:* કૃપા આપનો બેંક અધિકારી સાથે સંપર્ક કરો તમારા ખેતી વિગતો નોંધવા માટે. પછી આ સેવાઓ સંપૂર્ણ રીતે વાપરી શકશો.
 
 🌐 ભાષા: *GU* (Gujarati) | HIN (Hindi) | EN (English)`,
     

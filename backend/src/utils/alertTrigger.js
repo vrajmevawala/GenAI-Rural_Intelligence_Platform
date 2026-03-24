@@ -73,15 +73,13 @@ async function getFarmerCompleteProfile(farmerId) {
     `SELECT f.*,
             c.name as primary_crop,
             c.id as crop_id,
-            MAX(fc.created_at) as crop_planted_date,
-            (SELECT score FROM fvi_records WHERE farmer_id = f.id ORDER BY created_at DESC LIMIT 1) as vulnerability_score,
-            (SELECT to_jsonb(data) FROM soil_tests WHERE farmer_id = f.id ORDER BY created_at DESC LIMIT 1) as latest_soil_test
+            fc.created_at as crop_planted_date,
+            (SELECT score FROM fvi_records WHERE farmer_id = f.id ORDER BY created_at DESC LIMIT 1) as vulnerability_score
      FROM farmers f
      LEFT JOIN farmer_crops fc ON f.id = fc.farmer_id
      LEFT JOIN crops c ON c.id = fc.crop_id
      WHERE f.id = $1
-     GROUP BY f.id, c.name, c.id
-     ORDER BY fc.created_at DESC
+     ORDER BY fc.created_at DESC NULLS LAST
      LIMIT 1`,
     [farmerId]
   )
