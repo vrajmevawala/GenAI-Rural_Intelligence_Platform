@@ -1,68 +1,100 @@
-# KhedutMitra Rural Intelligence Platform README v2
+# 🌾 KhedutMitra : Rural Intelligence Platform
 
-KhedutMitra is a full-stack rural intelligence platform for farmer-centric risk monitoring, advisory delivery, scheme intelligence, and operational dashboards for institutions and field teams.
+KhedutMitra is a sophisticated full-stack rural intelligence platform designed for farmer-centric risk monitoring, advisory delivery, and operational excellence. It empowers institutions with real-time data, predictive analytics, and automated communication tools to support rural communities effectively.
 
-## Version 2 Highlights
-- End-to-end farmer lifecycle: create, view, update, delete, recalculate score.
-- Extended farmer profiles: identity, location, agronomy, irrigation, household, loan, insurance, and PM-KISAN attributes.
-- Unified risk intelligence: weather + soil + financial + crop market factors in one vulnerability score.
-- Scheme and alert operations integrated into the same workflow.
-- WhatsApp capability for communication and conversation tracking.
-- Detailed module-level function documentation generated in a dedicated folder.
+---
 
-## Core Features
-- Farmer Vulnerability Index (FVI)
-    - Weighted score computation using climate risk, soil suitability, social-financial risk, and market risk.
-    - Historical score tracking and high-risk farmer identification.
-    - District heatmap-ready aggregates.
-- Farmer Profile Management
-    - Full CRUD with robust mapping between API payloads and DB fields.
-    - Support for extended fields: aadhaar_last4, taluka, primary/secondary crop, irrigation type, family size, loan and insurance details, PM-KISAN, bank account.
-- Alerts Engine
-    - Alert generation, listing, status updates, and bulk generation flows.
-    - Dashboard activity integration for operational visibility.
-- Scheme Intelligence
-    - Farmer-scheme matching and status management.
-    - Scheme catalog with eligibility workflows.
-- Weather Intelligence
-    - District weather fetch with cache refresh and expiry handling.
-    - Weather usage in vulnerability calculations and UI cards.
-- Dashboard Analytics
-    - Summary KPIs, risk distribution, reason breakdown, upcoming expiries, and recent activity feed.
-- Multilingual Support
-    - Gujarati, Hindi, English support paths with translation module integration.
-- Auth and Security
-    - JWT auth with refresh flow.
-    - Role-aware access controls for superadmin, org_admin, field_officer.
-    - Validation and standardized API responses.
-- WhatsApp Integration
-    - Conversation/message support and assisted response flow for farmer engagement.
+## 🚀 Tech Stack
 
-## What Makes This Project Unique
-- Domain-specific farmer intelligence model rather than generic CRM behavior.
-- Practical field-ready profile model that combines agronomy and finance in one entity.
-- Hybrid advisory approach combining weather cache, risk scoring, and alerting.
-- Operationally actionable dashboards designed for institutions, not just individual users.
-- Modular backend architecture where each domain is isolated into controller/routes/service layers.
+### Frontend
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![TanStack Query](https://img.shields.io/badge/-TanStack%20Query-FF4154?style=for-the-badge&logo=react-query&logoColor=white)
+![Zustand](https://img.shields.io/badge/Zustand-443322?style=for-the-badge)
+![Leaflet](https://img.shields.io/badge/Leaflet-199903?style=for-the-badge&logo=leaflet&logoColor=white)
 
-## Architecture
-- Frontend: React + Vite, TanStack Query, Zustand, Tailwind, chart components.
-- Backend: Express (modular), PostgreSQL, JWT, Joi, utility layer for responses/logging.
-- External integrations: weather provider, translation service, WhatsApp channel.
+### Backend
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=json-web-tokens&logoColor=white)
+![Twilio](https://img.shields.io/badge/Twilio-F22F46?style=for-the-badge&logo=twilio&logoColor=white)
+![Telegram](https://img.shields.io/badge/Telegram-26A69A?style=for-the-badge&logo=telegram&logoColor=white)
+![Azure Speech](https://img.shields.io/badge/Azure_Speech-0078D4?style=for-the-badge&logo=microsoft-azure&logoColor=white)
+![Groq](https://img.shields.io/badge/Groq-f3d03e?style=for-the-badge&logo=groq&logoColor=black)
 
-## Project Structure
+---
+
+## ✨ Key Features
+
+### 📊 Farmer Vulnerability Index (FVI)
+Advanced risk scoring engine that computes vulnerability based on:
+- **Climate Risk:** Real-time and historical weather patterns.
+- **Soil Suitability:** Compatibility analysis for specific crops.
+- **Financial Risk:** Loan status, insurance coverage, and market factors.
+- **Social Risk:** Household and demographic indicators.
+
+### 🌤️ Weather Intelligence
+- Real-time weather monitoring on district levels.
+- Intelligent caching strategy to prevent redundant API calls.
+- Weather-aware advisories generated for specific crop cycles.
+
+### 🗺️ Operational Dashboards
+- **Dynamic Metrics:** Live tracking of average vulnerability scores and unique district reaches.
+- **Heatmaps:** District-wise visualization of risk factors using Leaflet.
+- **Actionable Insights:** Categorized alerts (Critical, High, Medium, Low) for field teams.
+
+### 💬 WhatsApp Integration
+- Automated advisory delivery and farmer engagement via Twilio.
+- Assisted response flow for conversation tracking.
+- Bulk alert generation and status management.
+
+### 🤖 AI-Powered Telegram Bot
+- **Computer Vision:** Crop disease detection from farmer-uploaded photos using Llama-3 Vision models via Groq.
+- **Multilingual Support:** Instant analysis and advice in Gujarati, Hindi, and English.
+- **Automatic Logging:** Detected issues are automatically logged into the central database for field officer follow-ups.
+
+### 🎙️ Voice Assistant (TTS)
+- **Rural Accessibility:** Integrated Text-to-Speech (TTS) using **Azure Speech Service** to convert agricultural advisories into spoken audio.
+- **Localized Voices:** Support for natural-sounding neural voices in **Gujarati**, **Hindi**, and **English**.
+- **Interactive Engagement:** Hybrid interaction model combining text, images, and audio for maximum reach.
+
+### 🌍 Multilingual & Localization
+- Native support for **English**, **Gujarati**, and **Hindi**.
+- Seamless UI localization across all modules (Dashboard, Profile, Alerts).
+
+---
+
+## 💎 What Makes This Project Unique
+- **Domain-Specific Modeling:** Tailored farmer intelligence rather than generic CRM behavior.
+- **Field-Ready Profiles:** Combines agronomy and finance into a single, actionable entity.
+- **Hybrid Advisory:** Merges weather data, risk scoring, and automated alerting.
+- **Institutional Focus:** Dashboards designed for scale, supporting both field officers and superadmins.
+- **Modular Architecture:** Clean isolation of domains into controller/route/service layers.
+
+---
+
+
+
+
+
+---
+
+## 📂 Project Structure
+
 ```text
-Rural_Intelligence_Plateform/
-├── backend/
+GenAI-Rural_Intelligence_Platform/
+├── backend/                # Express.js Server
 │   ├── src/
-│   │   ├── config/
-│   │   ├── db/
+│   │   ├── config/         # App configuration
+│   │   ├── db/             # Migrations, Seeds, and Setup
 │   │   │   ├── migrations/
 │   │   │   ├── migrate.js
 │   │   │   ├── seed.js
 │   │   │   └── setup.js
-│   │   ├── middleware/
-│   │   ├── modules/
+│   │   ├── middleware/     # Auth, Logging, Validation
+│   │   ├── modules/        # Domain-driven modules
 │   │   │   ├── alerts/
 │   │   │   ├── auth/
 │   │   │   ├── crops/
@@ -78,71 +110,88 @@ Rural_Intelligence_Plateform/
 │   │   │   ├── weather/
 │   │   │   ├── whatsapp/
 │   │   │   └── function-docs/
-│   │   └── utils/
-│   └── server.js
-├── frontend/
+│   │   └── utils/          # Shared Helpers
+│   └── server.js           # API Entry Point
+├── frontend/               # React Vite Application
 │   ├── src/
-│   │   ├── api/
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── pages/
-│   │   ├── router/
-│   │   ├── store/
-│   │   └── utils/
-│   └── vite.config.js
+│   │   ├── api/            # TanStack Query Hooks
+│   │   ├── components/     # UI Design System
+│   │   ├── hooks/          # Custom React Hooks
+│   │   ├── pages/          # Feature Views (Dashboard, Map, Farmers)
+│   │   ├── router/         # App Routing
+│   │   ├── store/          # Global State (Zustand)
+│   │   └── utils/          # Frontend Helpers
+│   └── vite.config.js      # Build Configuration
 └── README.md
 ```
 
-## Setup and Run
+---
+
+## 🛠️ Getting Started
 
 ### Prerequisites
-- Node.js 20+
-- PostgreSQL
+- **Node.js** v20 or higher
+- **PostgreSQL** (running locally or via cloud)
 
-### Backend
-1. Go to backend folder.
-2. Install dependencies: npm install
-3. Configure environment variables.
-4. Initialize DB (schema + seed): npm run db:setup
-5. Start server: npm run dev
+### 1. Backend Setup
+1. Go to the `backend` folder.
+2. Install dependencies: `npm install`
+3. Configure environment variables in `.env` (DATABASE_URL, JWT_SECRET, etc.).
+4. Initialize DB (schema + seed): `npm run db:setup`
+5. Start server: `npm run dev`
 
-### Frontend
-1. Go to frontend folder.
-2. Install dependencies: npm install
-3. Configure VITE API URL.
-4. Start app: npm run dev
+### 2. Frontend Setup
+1. Go to the `frontend` folder.
+2. Install dependencies: `npm install`
+3. Configure `VITE_API_BASE_URL` in `.env`.
+4. Start app: `npm run dev`
 
-## Database and Seed Notes
-- Migrations include base schema, WhatsApp support, farmer code sequence, and extended farmer profile fields.
-- Seed script populates farmers with both core and extended profile data so edit forms display complete values for seeded records.
+---
 
-## Function Documentation (Per Function)
-- Generated folder: backend/src/modules/function-docs
-- Index file: backend/src/modules/function-docs/README.md
-- One markdown file per named function across module controller/service/schema files.
+## 🗄️ Database and Seed Notes
+- **Migrations:** Include base schema, WhatsApp sessions, farmer sequences, and extended profile fields.
+- **Smart Seeding:** The seed script populates farmers with complete agronomic and financial data, ensuring edit forms display realistic values immediately.
 
-## API Domains
-- /auth
-- /farmers
-- /alerts
-- /schemes
-- /dashboard
-- /vulnerability
-- /users
-- /institutions
-- /locations
-- /translation
-- /whatsapp
+---
 
-## Security and Reliability
-- JWT + refresh session flow.
-- Input validation in request schemas.
-- Centralized error handling and response shape.
-- Weather cache refresh strategy to avoid stale advisory context.
+## 📖 Function Documentation
+- **Auto-Generated:** Detailed per-function documentation is located in `backend/src/modules/function-docs`.
+- **Index:** See `backend/src/modules/function-docs/README.md` for a complete overview of controller/service logic.
+- **Maintenance:** To regenerate, rerun the documentation workflow assigned to backend modules.
 
-## Maintenance Notes
-- To regenerate per-function docs, rerun the documentation generation workflow used for backend modules.
-- Keep migrations forward-only and idempotent where possible.
+---
 
-## License
-Internal project. Update this section with your organization license policy if needed.
+## 🛣️ API Domains
+- `/api/auth` - Authentication & Refresh Tokens
+- `/api/users` - User Management & RBAC
+- `/api/institutions` - Organization Management
+- `/api/farmers` - Profile CRUD & Life-cycle
+- `/api/crops` - Crop Catalog & Suitability
+- `/api/vulnerability` - FVI Calculation Engine
+- `/api/schemes` - Matching & Eligibility
+- `/api/alerts` - Operational Monitoring
+- `/api/dashboard` - Real-time Analytics
+- `/api/disease` - AI Disease Detection
+- `/api/locations` - District/Taluka Assets
+- `/api/translate` - Multilingual Logic
+- `/api/whatsapp` - Twilio Messaging & **Voice Assistant**
+- `/api/telegram` - GenAI Telegram Bot
+
+---
+
+## 🔒 Security & Reliability
+- **Stateful Sessions:** JWT with integrated refresh flow for secure, long-lived sessions.
+- **Input Validation:** Strict Joi schemas for all inbound requests.
+- **Error Handling:** Centralized response normalization and logging.
+- **Weather Reliability:** Caching strategy with smart refresh to maintain advisory context.
+
+---
+
+## ⚙️ Maintenance Notes
+- Keep migrations forward-only and idempotent.
+- Ensure `vulnerability` weightages are updated in synchronization with institutional policies.
+
+---
+
+## 📄 License
+This project is for internal institutional use. Contact the administrator for licensing policies.
